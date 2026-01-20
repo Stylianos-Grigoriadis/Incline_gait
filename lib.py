@@ -7,6 +7,239 @@ import numpy as np
 from numpy.fft import fft, fftfreq
 import colorednoise as cn
 from scipy.stats import pearsonr, spearmanr
+from scipy.signal import butter, filtfilt, sosfiltfilt, iirnotch
+
+
+def emg_linear_envelope(signal, fs, cutoff=10, order=4, plot=False):
+    """
+    Compute and optionally plot the EMG linear envelope.
+
+    Parameters
+    ----------
+    signal : array-like
+        Rectified EMG signal
+    fs : float
+        Sampling frequency (Hz)
+    cutoff : float
+        Low-pass cutoff frequency (Hz), typically 3–6 Hz
+    order : int
+        Filter order
+    plot : bool
+        If True, plot original signal and linear envelope
+
+    Returns
+    -------
+    envelope : np.ndarray
+        EMG linear envelope
+    """
+
+    x = np.asarray(signal)
+
+    nyq = fs / 2.0
+    wn = cutoff / nyq
+
+    b, a = butter(order, wn, btype='low')
+    padlen = min(len(x) - 1, 3 * max(len(a), len(b)))
+    envelope = filtfilt(b, a, x, padtype='odd', padlen=padlen)
+
+    if plot:
+        t = np.arange(len(x)) / fs
+        plt.figure(figsize=(10, 4))
+        plt.plot(t, x, label='Rectified EMG', color='black', alpha=0.4)
+        plt.plot(t, envelope, label='Linear envelope', color='royalblue', linewidth=2)
+        plt.xlabel('Time (s)')
+        plt.ylabel('Amplitude')
+        plt.title(f'EMG Linear Envelope (low-pass {cutoff} Hz)')
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+    return envelope
+
+def notch_filter_with_plots(x, fs, f_notch=50.0, bandwidth=1.5, plot=False):
+    """
+    Apply notch filter and optionally plot time & frequency domain (2x2).
+
+    Parameters
+    ----------
+    x : array-like
+        Input signal
+    fs : float
+        Sampling frequency (Hz)
+    f_notch : float
+        Frequency to remove (Hz)
+    Q : float
+        Quality factor
+    plot : bool
+        If True, plot time & frequency domain (2x2)
+
+    Returns
+    -------
+    y : np.ndarray
+        Notch-filtered signal
+    """
+
+    x = np.asarray(x)
+
+    # -------------------------
+    # Notch filter
+    # -------------------------
+    Q = f_notch/bandwidth
+    w0 = f_notch / (fs / 2)
+    b, a = iirnotch(w0, Q)
+    y = filtfilt(b, a, x)
+
+    # -------------------------
+    # FFT helper
+    # -------------------------
+    def compute_fft(sig):
+        freqs = fftfreq(len(sig), 1 / fs)
+        mask = freqs > 0
+        Y = fft(sig)
+        psd = 2 * (np.abs(Y) / len(sig)) ** 2
+        return freqs[mask], psd[mask]
+
+    if plot:
+        t = np.arange(len(x)) / fs
+
+        f_x, a_x = compute_fft(x)
+        f_y, a_y = compute_fft(y)
+
+        fig, axs = plt.subplots(2, 2, figsize=(12, 7))
+
+        # ---- Time domain (original)
+        axs[0, 0].plot(t, x, color='black', alpha=0.6)
+        axs[0, 0].set_title('Time domain – Original')
+        axs[0, 0].set_xlabel('Time (s)')
+        axs[0, 0].set_ylabel('Signal')
+
+        # ---- Time domain (filtered)
+        axs[0, 1].plot(t, y, color='royalblue', linewidth=1.2)
+        axs[0, 1].set_title('Time domain – Notch filtered')
+        axs[0, 1].set_xlabel('Time (s)')
+        axs[0, 1].set_ylabel('Signal')
+
+        # ---- Frequency domain (original)
+        axs[1, 0].plot(f_x, a_x, color='black', alpha=0.6)
+        axs[1, 0].set_title('Frequency domain – Original')
+        axs[1, 0].set_xlabel('Frequency (Hz)')
+        axs[1, 0].set_ylabel('Power')
+
+        # ---- Frequency domain (filtered)
+        axs[1, 1].plot(f_y, a_y, color='royalblue', linewidth=1.2)
+        axs[1, 1].set_title(
+            f'Frequency domain – Notch @ {f_notch} Hz (Q={round(Q,2)})'
+        )
+        axs[1, 1].set_xlabel('Frequency (Hz)')
+        axs[1, 1].set_ylabel('Power')
+
+        for ax in axs.flat:
+            ax.grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+    return y
+
+def butter_bandpass_filtfilt(x, fs, low=0.01, high=0.30, order=4, plot=False):
+    """
+    Zero-phase Butterworth band-pass for fNIRS.
+
+    Parameters
+    ----------
+    x : 1D array
+    fs : float         # sampling rate (Hz)
+    low, high : float  # cutoffs in Hz
+    order : int
+    plot : bool        # if True, show 2x2 time & frequency plots
+
+    Returns
+    -------
+    y : 1D array
+        Filtered signal
+    """
+
+    x = np.array(x)
+
+    nyq = fs / 2.0
+    wn = [low / nyq, high / nyq]
+    if not (0 < wn[0] < wn[1] < 1):
+        raise ValueError("Cutoffs must satisfy 0 < low < high < fs/2.")
+
+    b, a = butter(order, wn, btype='band')
+
+    padlen = min(len(x) - 1, 3 * max(len(a), len(b)))
+    y = filtfilt(b, a, x, padtype='odd', padlen=padlen)
+
+    if plot:
+
+        def compute_fft(sig):
+            freqs = fftfreq(len(sig), 1 / fs)
+            mask = freqs > 0
+            Y = fft(sig)
+            psd = 2 * (np.abs(Y) / len(sig)) ** 2
+            return freqs[mask], psd[mask]
+
+        t = np.arange(len(x)) / fs
+        f_x, a_x = compute_fft(x)
+        f_y, a_y = compute_fft(y)
+
+        fig, axs = plt.subplots(2, 2, figsize=(12, 7))
+
+        # ---- Time domain: original
+        axs[0, 0].plot(t, x, color='black', alpha=0.6)
+        axs[0, 0].set_title('Time domain – Original')
+        axs[0, 0].set_xlabel('Time (s)')
+        axs[0, 0].set_ylabel('Signal')
+
+        # ---- Time domain: filtered
+        axs[0, 1].plot(t, y, color='royalblue', linewidth=1.3)
+        axs[0, 1].set_title('Time domain – Band-pass filtered')
+        axs[0, 1].set_xlabel('Time (s)')
+        axs[0, 1].set_ylabel('Signal')
+
+        # ---- Frequency domain: original
+        axs[1, 0].plot(f_x, a_x, color='black', alpha=0.6)
+        axs[1, 0].set_title('Frequency domain – Original')
+        axs[1, 0].set_xlabel('Frequency (Hz)')
+        axs[1, 0].set_ylabel('Power')
+
+        # ---- Frequency domain: filtered
+        axs[1, 1].plot(f_y, a_y, color='royalblue', linewidth=1.3)
+        axs[1, 1].set_title(
+            f'Frequency domain – Band-pass {low}-{high} Hz (order={order})'
+        )
+        axs[1, 1].set_xlabel('Frequency (Hz)')
+        axs[1, 1].set_ylabel('Power')
+
+        for ax in axs.flat:
+            ax.grid(True)
+
+        plt.tight_layout()
+        plt.show()
+
+    return y
+
+def FFT_fast(var, fs):
+    dt = 1 / fs
+    freqs = fftfreq(len(var), dt)
+    mask = freqs > 0
+
+    Y = fft(var)
+    a = 2 * ((np.abs(Y) / len(var)) ** 2)
+    f = freqs[mask]
+    a = a[mask]
+
+    plt.plot(f, a)
+    plt.show()
+
+    percA = np.cumsum(a) / np.sum(a) * 100
+
+    index90 = np.argmin(np.abs(percA - 90))
+    index95 = np.argmin(np.abs(percA - 95))
+    index99 = np.argmin(np.abs(percA - 99))
+
+    return f[index90], f[index95], f[index99]
 
 def FFT(var,fs):
     dt = 1 / fs
@@ -19,9 +252,11 @@ def FFT(var,fs):
     a = pSpec[mask]
     plt.plot(f,a)
     plt.show()
+    print(1)
     sumA=[0]
     for i in range(1,len(a)):
         sumA.append(a[i]+sumA[i-1])
+    print(2)
 
     prec90= []
     prec95 = []
@@ -31,6 +266,8 @@ def FFT(var,fs):
         prec90.append(abs(p - 90))
         prec95.append(abs(p - 95))
         prec99.append(abs(p - 99))
+    print(3)
+
     for i in range(len(percA)):
         if prec90[i]==min(prec90):
             index90 = i
@@ -38,6 +275,9 @@ def FFT(var,fs):
             index95 = i
         if prec99[i]==min(prec99):
             index99 = i
+
+    print(4)
+
     return f[index90],f[index95],f[index99]
 
 def q_to_ypr(q):
@@ -364,10 +604,6 @@ def prepare_ecg_df(df):
     return df
 
 def prepare_imu_df(df):
-    df = df.iloc[:, [0, 5, 6, 7]]
-    df.columns = ['Time', 'Acc_X', 'Acc_Y', 'Acc_Z']
-    df['Acc_X'] = Kinvent_convert_accel(df['Acc_X'])
-    df['Acc_Y'] = Kinvent_convert_accel(df['Acc_Y'])
-    df['Acc_Z'] = Kinvent_convert_accel(df['Acc_Z'])
 
+    df = df.iloc[:, [0, 5, 6, 7]].copy().set_axis(['Time', 'Acc_X', 'Acc_Y', 'Acc_Z'], axis=1)
     return df
