@@ -45,8 +45,8 @@ def emg_linear_envelope(signal, fs, cutoff=10, order=4, plot=False):
     if plot:
         t = np.arange(len(x)) / fs
         plt.figure(figsize=(10, 4))
-        plt.plot(t, x, label='Rectified EMG', color='black', alpha=0.4)
-        plt.plot(t, envelope, label='Linear envelope', color='royalblue', linewidth=2)
+        plt.plot(x, label='Rectified EMG', color='black', alpha=0.4)
+        plt.plot(envelope, label='Linear envelope', color='royalblue', linewidth=2)
         plt.xlabel('Time (s)')
         plt.ylabel('Amplitude')
         plt.title(f'EMG Linear Envelope (low-pass {cutoff} Hz)')
@@ -354,7 +354,7 @@ def peaks(var,distance,height):
     peaks, _ = signal.find_peaks(var, distance=distance, height=height)
     peaksAmp = [var[peak] for peak in peaks]
 
-    return peaks,peaksAmp
+    return peaks, peaksAmp
 
 def Linear_Interpolation(col, step, plus):
     n = len(col)
