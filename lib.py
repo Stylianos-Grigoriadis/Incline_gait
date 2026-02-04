@@ -8,7 +8,424 @@ from numpy.fft import fft, fftfreq
 import colorednoise as cn
 from scipy.stats import pearsonr, spearmanr
 from scipy.signal import butter, filtfilt, sosfiltfilt, iirnotch
+from matplotlib.widgets import Slider, SpanSelector
+from scipy.signal import find_peaks
 
+
+def interactive_find_peaks_with_sliders(
+    signal,
+    time,
+    distance_init=200,
+    height_init=0.02,
+    distance_range=(1, 1000),
+    height_range=(0.0, 1.0)
+):
+    """
+    Interactive peak detection and manual refinement tool.
+
+    Features
+    --------
+    - Automatic peak detection using scipy.signal.find_peaks
+    - Two sliders to adjust:
+        * minimum peak distance
+        * minimum peak height
+    - Span-based manual editing on the top plot:
+        * DELETE / BACKSPACE: remove peaks in span
+        * SPACE: add a peak at the maximum signal value in span
+    - Lower plot shows inter-peak intervals (np.diff)
+
+    Returns
+    -------
+    peak_times : np.ndarray
+    peak_amplitudes : np.ndarray
+    """
+
+    # ===============================
+    # Initial state
+    # ===============================
+    state = {
+        "distance": distance_init,
+        "height": height_init,
+        "peak_times": [],
+        "peak_amp": []
+    }
+
+    # ===============================
+    # Peak detection
+    # ===============================
+    def detect_peaks():
+        idx, props = find_peaks(
+            signal,
+            distance=state["distance"],
+            height=state["height"]
+        )
+        state["peak_times"] = time[idx].tolist()
+        state["peak_amp"] = signal[idx].tolist()
+
+    detect_peaks()
+
+    # ===============================
+    # Figure layout
+    # ===============================
+    fig = plt.figure(figsize=(13, 7))
+
+    gs = fig.add_gridspec(
+        4, 1,
+        height_ratios=[4, 1, 0.2, 0.2]
+    )
+
+    ax_sig = fig.add_subplot(gs[0])
+    ax_rr = fig.add_subplot(gs[1], sharex=ax_sig)
+    ax_dist = fig.add_subplot(gs[2])
+    ax_height = fig.add_subplot(gs[3])
+
+    plt.subplots_adjust(hspace=0.08)
+
+    # --- Disable toolbar interference (CRITICAL) ---
+    try:
+        fig.canvas.manager.toolbar.set_visible(False)
+    except Exception:
+        pass
+
+    # ===============================
+    # Initial plots
+    # ===============================
+    ax_sig.plot(time, signal, color="royalblue", lw=1.5)
+    scatter = ax_sig.scatter([], [], color="red", zorder=3)
+
+    vlines = []
+
+    rr_line, = ax_rr.plot([], [], color="darkorange", lw=1.5)
+
+    ax_sig.set_title("Interactive Peak Detection")
+    ax_sig.set_ylabel("Amplitude")
+    ax_rr.set_ylabel("Δ Time (s)")
+    ax_rr.set_xlabel("Time (s)")
+
+    ax_sig.grid(alpha=0.3)
+    ax_rr.grid(alpha=0.3)
+
+    # ===============================
+    # Span selector
+    # ===============================
+    span = {"xmin": None, "xmax": None}
+
+    def on_span(xmin, xmax):
+        span["xmin"] = min(xmin, xmax)
+        span["xmax"] = max(xmin, xmax)
+        print(f"Selected span: {span['xmin']:.3f} – {span['xmax']:.3f} s")
+
+    span_selector = SpanSelector(
+        ax_sig,
+        on_span,
+        direction="horizontal",
+        useblit=False,      # REQUIRED with sliders
+        props=dict(alpha=0.25, facecolor="gray"),
+        interactive=True
+    )
+    span_selector.active = True
+
+    # ===============================
+    # Update plots
+    # ===============================
+    def update_plots():
+        # Scatter
+        if state["peak_times"]:
+            scatter.set_offsets(
+                np.c_[state["peak_times"], state["peak_amp"]]
+            )
+        else:
+            scatter.set_offsets(np.empty((0, 2)))
+
+        # Vertical lines
+        for ln in vlines:
+            ln.remove()
+        vlines.clear()
+
+        for t in state["peak_times"]:
+            vlines.append(
+                ax_sig.axvline(t, color="red", ls="--", alpha=0.3)
+            )
+
+        # RR plot
+        if len(state["peak_times"]) > 1:
+            rr = np.diff(state["peak_times"])
+            rr_line.set_data(state["peak_times"][1:], rr)
+            ax_rr.relim()
+            ax_rr.autoscale_view()
+        else:
+            rr_line.set_data([], [])
+
+        fig.canvas.draw_idle()
+
+    update_plots()
+
+    # ===============================
+    # Sliders
+    # ===============================
+    s_distance = Slider(
+        ax_dist,
+        "Distance",
+        distance_range[0],
+        distance_range[1],
+        valinit=distance_init,
+        valstep=1
+    )
+
+    s_height = Slider(
+        ax_height,
+        "Height",
+        height_range[0],
+        height_range[1],
+        valinit=height_init
+    )
+
+    def on_slider_change(val):
+        state["distance"] = int(s_distance.val)
+        state["height"] = s_height.val
+        detect_peaks()
+        update_plots()
+
+    s_distance.on_changed(on_slider_change)
+    s_height.on_changed(on_slider_change)
+
+    # ===============================
+    # Keyboard interaction
+    # ===============================
+    def on_key(event):
+        # DELETE peaks in span
+        if event.key in ("delete", "backspace"):
+            if span["xmin"] is None:
+                return
+
+            keep = [
+                i for i, t in enumerate(state["peak_times"])
+                if not (span["xmin"] <= t <= span["xmax"])
+            ]
+
+            if len(keep) == len(state["peak_times"]):
+                return
+
+            state["peak_times"] = [state["peak_times"][i] for i in keep]
+            state["peak_amp"] = [state["peak_amp"][i] for i in keep]
+
+            update_plots()
+
+        # ADD peak at max in span
+        elif event.key == " ":
+            if span["xmin"] is None:
+                return
+
+            mask = (time >= span["xmin"]) & (time <= span["xmax"])
+            if not np.any(mask):
+                return
+
+            idx_local = np.argmax(signal[mask])
+            idx_global = np.where(mask)[0][idx_local]
+
+            t_new = time[idx_global]
+            a_new = signal[idx_global]
+
+            state["peak_times"].append(t_new)
+            state["peak_amp"].append(a_new)
+
+            order = np.argsort(state["peak_times"])
+            state["peak_times"] = [state["peak_times"][i] for i in order]
+            state["peak_amp"] = [state["peak_amp"][i] for i in order]
+
+            update_plots()
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    plt.tight_layout()
+    plt.show()
+
+    return (
+        np.array(state["peak_times"]),
+        np.array(state["peak_amp"])
+    )
+
+
+
+def plot_to_check_find_peaks_algo(signal, signal_time, peak_times, peak_amplitude, downsample=None):
+    """
+    Interactive visualization and manual editing of detected peaks using a time-span selector.
+
+    The upper panel displays the signal (e.g., ECG/EMG linear envelope) together with the
+    currently detected peaks. A horizontal SpanSelector allows the user to mark a temporal
+    region of interest directly on the signal.
+
+    User interaction (upper plot only):
+    - Click and drag to define a time span.
+    - DELETE or BACKSPACE removes all detected peaks whose times fall within the selected span.
+    - SPACE adds a new peak at the maximum signal value within the selected span.
+
+    All edits are applied immediately:
+    - Peak times and amplitudes are updated.
+    - Inter-peak time intervals are recomputed.
+    - The lower panel (inter-peak interval time series) is refreshed automatically.
+
+    This tool enables manual correction, refinement, and inspection of peak detection results
+    in a fully interactive and reproducible manner.
+    """
+
+    # ---- ensure mutable ----
+    peak_times = list(peak_times)
+    peak_amplitude = list(peak_amplitude)
+
+    # ---- downsampling (for display only) ----
+    if downsample is None or downsample <= 1:
+        t_plot = signal_time
+        sig_plot = signal
+    else:
+        t_plot = signal_time[::downsample]
+        sig_plot = signal[::downsample]
+
+    # ---- figure & axes ----
+    fig, (ax1, ax2) = plt.subplots(
+        2, 1,
+        figsize=(12, 6),
+        gridspec_kw={'height_ratios': [4, 1]},
+        sharex=True
+    )
+
+    # ---- TOP: signal ----
+    ax1.plot(t_plot, sig_plot, color='royalblue', linewidth=2)
+
+    scatter = ax1.scatter(
+        peak_times,
+        peak_amplitude,
+        color='red',
+        zorder=3
+    )
+
+    vlines = [
+        ax1.axvline(t, color='red', linestyle='--', alpha=0.3) for t in peak_times
+    ]
+
+    ax1.set_ylabel("Amplitude")
+    ax1.set_title("Signal with editable peaks")
+    ax1.grid(alpha=0.3)
+
+    # ---- BOTTOM: inter-peak intervals ----
+    def compute_intervals():
+        return np.array(peak_times[1:]), np.diff(peak_times)
+
+    x_rr, rr = compute_intervals()
+    rr_line, = ax2.plot(x_rr, rr, color='darkorange', linewidth=1.5)
+
+    ax2.set_ylabel("Δ Time (s)")
+    ax2.set_xlabel("Time (s)")
+    ax2.set_title("Inter-peak intervals")
+    ax2.grid(alpha=0.3)
+
+    # ---- span state ----
+    span = {"xmin": None, "xmax": None}
+
+    def on_select(xmin, xmax):
+        span["xmin"] = min(xmin, xmax)
+        span["xmax"] = max(xmin, xmax)
+        print(f"Selected span: {span['xmin']:.3f}–{span['xmax']:.3f} s")
+
+    span_selector = SpanSelector(
+        ax1,
+        on_select,
+        direction="horizontal",
+        useblit=True,
+        props=dict(alpha=0.2, facecolor="gray"),
+        interactive=True
+    )
+
+    # ---- update plots ----
+    def update_plots():
+        # scatter
+        if peak_times:
+            scatter.set_offsets(np.c_[peak_times, peak_amplitude])
+        else:
+            scatter.set_offsets(np.empty((0, 2)))
+
+        # vertical lines
+        for ln in vlines:
+            ln.remove()
+        vlines.clear()
+
+        for t in peak_times:
+            vlines.append(
+                ax1.axvline(t, color='red', linestyle='--', alpha=0.3)
+            )
+
+        # RR plot
+        x_rr, rr = compute_intervals()
+        rr_line.set_data(x_rr, rr)
+        ax2.relim()
+        ax2.autoscale_view()
+
+        fig.canvas.draw_idle()
+
+    # ---- key handling ----
+    def on_key_press(event):
+        # ---- DELETE peaks in span ----
+        if event.key in ('delete', 'backspace'):
+            if span["xmin"] is None:
+                print("No span selected.")
+                return
+
+            keep = [
+                i for i, t in enumerate(peak_times)
+                if not (span["xmin"] <= t <= span["xmax"])
+            ]
+
+            if len(keep) == len(peak_times):
+                print("No peaks in span.")
+                return
+
+            removed = len(peak_times) - len(keep)
+            print(f"Removed {removed} peak(s).")
+
+            peak_times[:] = [peak_times[i] for i in keep]
+            peak_amplitude[:] = [peak_amplitude[i] for i in keep]
+
+            span["xmin"] = span["xmax"] = None
+            update_plots()
+
+        # ---- ADD peak at max in span ----
+        elif event.key == ' ':
+            if span["xmin"] is None:
+                print("No span selected.")
+                return
+
+            # indices of signal inside span
+            mask = (signal_time >= span["xmin"]) & (signal_time <= span["xmax"])
+
+            if not np.any(mask):
+                print("No data in span.")
+                return
+
+            idx = np.argmax(signal[mask])
+            idx_global = np.where(mask)[0][idx]
+
+            t_peak = signal_time[idx_global]
+            amp_peak = signal[idx_global]
+
+            print(f"Added peak at {t_peak:.3f} s")
+
+            peak_times.append(t_peak)
+            peak_amplitude.append(amp_peak)
+
+            # keep peaks sorted by time
+            order = np.argsort(peak_times)
+            peak_times[:] = [peak_times[i] for i in order]
+            peak_amplitude[:] = [peak_amplitude[i] for i in order]
+
+            span["xmin"] = span["xmax"] = None
+            update_plots()
+
+    fig.canvas.mpl_connect("key_press_event", on_key_press)
+
+    plt.tight_layout()
+    plt.show()
+
+    return peak_times, peak_amplitude
 
 def emg_linear_envelope(signal, fs, cutoff=10, order=4, plot=False):
     """
