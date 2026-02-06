@@ -10,15 +10,17 @@ import numpy as np
     Sensor 4 --> IMU
 """
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Pilot\Pilot Delsys\Stylianos 05-02-2026'
+
+
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P1'
 os.chdir(directory)
 
-data = pd.read_csv(r'Stylianos_25%_failed.csv', skiprows=8, header=None, low_memory=False)
+data = pd.read_csv(r'25_degree.csv', skiprows=8, header=None, low_memory=False)
 data = data.apply(pd.to_numeric, errors='coerce')
 data = data.iloc[:, :12]
 
 emg = pd.DataFrame({'Time_Gastr': data[0], 'Gastr': data[1], 'Time_ECG': data[2], 'ECG': data[3], 'Time_Quad': data[4], 'Quad': data[5],})
-emg['ECG'] = np.asarray(emg['ECG']) * (-1)
+# emg['ECG'] = np.asarray(emg['ECG']) * (-1)
 imu = pd.DataFrame({'time_acc_x': data[6], 'acc_x': data[7], 'time_acc_y': data[8], 'acc_y': data[9], 'time_acc_z': data[10], 'acc_z': data[11],})
 imu = imu.dropna(subset=['time_acc_x'])
 
@@ -58,3 +60,22 @@ peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
     distance_range=(1, fs_emg),
     height_range=(emg['ECG'].min(), emg['ECG'].max())
 )
+
+peak_times_Gastr, peak_amplitude_Gastr = lib.interactive_find_peaks_with_sliders(
+    emg['Gastr Linear Envelope'],
+    emg['Time_Gastr'],
+    distance_init=400,
+    height_init=0.02,
+    distance_range=(1, fs_emg),
+    height_range=(emg['Gastr Linear Envelope'].min(), emg['Gastr Linear Envelope'].max())
+)
+
+peak_times_Quad, peak_amplitude_Quad = lib.interactive_find_peaks_with_sliders(
+    emg['Quad Linear Envelope'],
+    emg['Time_Quad'],
+    distance_init=400,
+    height_init=0.02,
+    distance_range=(1, fs_emg),
+    height_range=(emg['Quad Linear Envelope'].min(), emg['Quad Linear Envelope'].max())
+)
+
