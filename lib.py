@@ -902,17 +902,23 @@ def derivative(array,fs):
 def Pink_noise_generator():
     pass
 
-def residual_analysis(signal, sampling_freq, list_cutoff_freq):
+def residual_analysis(signal, sampling_freq, lowest_freq, highest_freq):
     residuals_list = []
     signal = np.array(signal)
+    list_cutoff_freq = np.linspace(lowest_freq, highest_freq, highest_freq - lowest_freq + 1)
+    print(list_cutoff_freq)
     for i in range(len(list_cutoff_freq)):
-        filtered_signal = Butterworth(sampling_freq,list_cutoff_freq[i],signal)
-        filtered_signal = np.array(filtered_signal)
-        sum_squares = np.sum((signal - filtered_signal)**2)
-        residual = np.sqrt(sum_squares/len(signal))
-        residuals_list.append(residual)
+        filtered_signal = Butterworth(sampling_freq, list_cutoff_freq[i], signal)
+        rms = RMS(signal, filtered_signal)
+        residuals_list.append(rms)
+        print(rms)
+        print(filtered_signal)
 
     plt.plot(list_cutoff_freq, residuals_list)
+    plt.scatter(list_cutoff_freq, residuals_list)
+    plt.xlabel("Cutoff Frequency (Hz)")
+    plt.ylabel("RMS Residual Error")
+    plt.grid(True)
     plt.show()
 
 def correlation_analysis(x, y, method='pearson', plot=False, xlabel='X', ylabel='Y', title=None):
@@ -1024,3 +1030,8 @@ def prepare_imu_df(df):
 
     df = df.iloc[:, [0, 5, 6, 7]].copy().set_axis(['Time', 'Acc_X', 'Acc_Y', 'Acc_Z'], axis=1)
     return df
+
+def RMS(original, filtered):
+    residual = original - filtered
+    rms = np.sqrt(np.mean(residual ** 2))
+    return rms
