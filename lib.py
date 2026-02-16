@@ -194,7 +194,7 @@ def interactive_find_peaks_with_sliders(
     # ===============================
     def on_key(event):
         # DELETE peaks in span
-        if event.key in ("delete", "backspace"):
+        if event.key in ("delete"):
             if span["xmin"] is None:
                 return
 
@@ -558,84 +558,187 @@ def notch_filter_with_plots(x, fs, f_notch=50.0, bandwidth=1.5, plot=False):
 
     return y
 
-def butter_bandpass_filtfilt(x, fs, low=0.01, high=0.30, order=4, plot=False):
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider, TextBox
+from scipy.signal import butter, filtfilt
+from scipy.fft import fft, fftfreq
+
+
+def butter_bandpass_filtfilt(
+    x,
+    fs,
+    low=0.01,
+    high=0.30,
+    order=4,
+    plot=False
+):
     """
-    Zero-phase Butterworth band-pass for fNIRS.
+    Zero-phase Butterworth band-pass filter.
 
-    Parameters
-    ----------
-    x : 1D array
-    fs : float         # sampling rate (Hz)
-    low, high : float  # cutoffs in Hz
-    order : int
-    plot : bool        # if True, show 2x2 time & frequency plots
+    If plot=False:
+        → returns filtered signal immediately.
 
-    Returns
-    -------
-    y : 1D array
-        Filtered signal
+    If plot=True:
+        → interactive sliders + numeric input boxes
+        → returns filtered signal using final selected values.
     """
 
     x = np.array(x)
+    t = np.arange(len(x)) / fs
 
-    nyq = fs / 2.0
-    wn = [low / nyq, high / nyq]
-    if not (0 < wn[0] < wn[1] < 1):
-        raise ValueError("Cutoffs must satisfy 0 < low < high < fs/2.")
+    # --------------------------------------------------
+    # FILTER FUNCTION
+    # --------------------------------------------------
+    def apply_filter(lowcut, highcut):
+        nyq = fs / 2.0
+        wn = [lowcut / nyq, highcut / nyq]
 
-    b, a = butter(order, wn, btype='band')
+        if not (0 < wn[0] < wn[1] < 1):
+            return None
 
-    padlen = min(len(x) - 1, 3 * max(len(a), len(b)))
-    y = filtfilt(b, a, x, padtype='odd', padlen=padlen)
+        b, a = butter(order, wn, btype='band')
+        padlen = min(len(x) - 1, 3 * max(len(a), len(b)))
+        return filtfilt(b, a, x, padtype='odd', padlen=padlen)
 
-    if plot:
+    # --------------------------------------------------
+    # NO PLOT → SIMPLE FILTER
+    # --------------------------------------------------
+    if not plot:
+        return apply_filter(low, high)
 
-        def compute_fft(sig):
-            freqs = fftfreq(len(sig), 1 / fs)
-            mask = freqs > 0
-            Y = fft(sig)
-            psd = 2 * (np.abs(Y) / len(sig)) ** 2
-            return freqs[mask], psd[mask]
+    # --------------------------------------------------
+    # FFT FUNCTION
+    # --------------------------------------------------
+    def compute_fft(sig):
+        freqs = fftfreq(len(sig), 1 / fs)
+        mask = freqs > 0
+        Y = fft(sig)
+        psd = 2 * (np.abs(Y) / len(sig)) ** 2
+        return freqs[mask], psd[mask]
 
-        t = np.arange(len(x)) / fs
-        f_x, a_x = compute_fft(x)
-        f_y, a_y = compute_fft(y)
+    # Initial signal
+    y = apply_filter(low, high)
+    f_x, a_x = compute_fft(x)
+    f_y, a_y = compute_fft(y)
 
-        fig, axs = plt.subplots(2, 2, figsize=(12, 7))
+    # --------------------------------------------------
+    # FIGURE
+    # --------------------------------------------------
+    fig, axs = plt.subplots(2, 2, figsize=(12, 7))
+    plt.subplots_adjust(bottom=0.32)
 
-        # ---- Time domain: original
-        axs[0, 0].plot(t, x, color='black', alpha=0.6)
-        axs[0, 0].set_title('Time domain – Original')
-        axs[0, 0].set_xlabel('Time (s)')
-        axs[0, 0].set_ylabel('Signal')
+    axs[0, 0].plot(t, x, color='black', alpha=0.6)
+    axs[0, 0].set_title("Time – Original")
 
-        # ---- Time domain: filtered
-        axs[0, 1].plot(t, y, color='royalblue', linewidth=1.3)
-        axs[0, 1].set_title('Time domain – Band-pass filtered')
-        axs[0, 1].set_xlabel('Time (s)')
-        axs[0, 1].set_ylabel('Signal')
+    line_time, = axs[0, 1].plot(t, y, color='royalblue')
+    axs[0, 1].set_title("Time – Filtered")
 
-        # ---- Frequency domain: original
-        axs[1, 0].plot(f_x, a_x, color='black', alpha=0.6)
-        axs[1, 0].set_title('Frequency domain – Original')
-        axs[1, 0].set_xlabel('Frequency (Hz)')
-        axs[1, 0].set_ylabel('Power')
+    axs[1, 0].plot(f_x, a_x, color='black', alpha=0.6)
+    axs[1, 0].set_title("Frequency – Original")
 
-        # ---- Frequency domain: filtered
-        axs[1, 1].plot(f_y, a_y, color='royalblue', linewidth=1.3)
-        axs[1, 1].set_title(
-            f'Frequency domain – Band-pass {low}-{high} Hz (order={order})'
-        )
-        axs[1, 1].set_xlabel('Frequency (Hz)')
-        axs[1, 1].set_ylabel('Power')
+    line_freq, = axs[1, 1].plot(f_y, a_y, color='royalblue')
+    axs[1, 1].set_title(f"Frequency – {low}-{high} Hz")
 
-        for ax in axs.flat:
-            ax.grid(True)
+    for ax in axs.flat:
+        ax.grid(True)
 
-        plt.tight_layout()
-        plt.show()
+    # --------------------------------------------------
+    # SLIDERS
+    # --------------------------------------------------
+    ax_low_slider = plt.axes([0.2, 0.18, 0.55, 0.03])
+    ax_high_slider = plt.axes([0.2, 0.12, 0.55, 0.03])
 
-    return y
+    slider_low = Slider(
+        ax_low_slider,
+        "Low (Hz)",
+        0.001,
+        fs/2 - 0.01,
+        valinit=low,
+        valstep=0.001
+    )
+
+    slider_high = Slider(
+        ax_high_slider,
+        "High (Hz)",
+        0.001,
+        fs/2 - 0.001,
+        valinit=high,
+        valstep=0.001
+    )
+
+    # --------------------------------------------------
+    # TEXT BOXES
+    # --------------------------------------------------
+    ax_low_box = plt.axes([0.80, 0.18, 0.10, 0.04])
+    ax_high_box = plt.axes([0.80, 0.12, 0.10, 0.04])
+
+    text_low = TextBox(ax_low_box, "", initial=str(low))
+    text_high = TextBox(ax_high_box, "", initial=str(high))
+
+    # --------------------------------------------------
+    # UPDATE FUNCTION
+    # --------------------------------------------------
+    def update_filter(lowcut, highcut):
+        if lowcut >= highcut:
+            return
+
+        y_new = apply_filter(lowcut, highcut)
+        if y_new is None:
+            return
+
+        f_y_new, a_y_new = compute_fft(y_new)
+
+        line_time.set_ydata(y_new)
+        line_freq.set_ydata(a_y_new)
+        axs[1, 1].set_title(f"Frequency – {lowcut:.3f}-{highcut:.3f} Hz")
+
+        fig.canvas.draw_idle()
+
+    # --------------------------------------------------
+    # SLIDER CALLBACK
+    # --------------------------------------------------
+    def slider_update(val):
+        lowcut = slider_low.val
+        highcut = slider_high.val
+
+        text_low.set_val(f"{lowcut:.3f}")
+        text_high.set_val(f"{highcut:.3f}")
+
+        update_filter(lowcut, highcut)
+
+    slider_low.on_changed(slider_update)
+    slider_high.on_changed(slider_update)
+
+    # --------------------------------------------------
+    # TEXTBOX CALLBACK
+    # --------------------------------------------------
+    def submit_low(text):
+        try:
+            value = float(text)
+            slider_low.set_val(value)
+        except ValueError:
+            pass
+
+    def submit_high(text):
+        try:
+            value = float(text)
+            slider_high.set_val(value)
+        except ValueError:
+            pass
+
+    text_low.on_submit(submit_low)
+    text_high.on_submit(submit_high)
+
+    plt.show()
+
+    # --------------------------------------------------
+    # RETURN FINAL FILTERED SIGNAL
+    # --------------------------------------------------
+    return apply_filter(slider_low.val, slider_high.val)
+
+
 
 def FFT_fast(var, fs):
     dt = 1 / fs
@@ -906,16 +1009,13 @@ def residual_analysis(signal, sampling_freq, lowest_freq, highest_freq):
     residuals_list = []
     signal = np.array(signal)
     list_cutoff_freq = np.linspace(lowest_freq, highest_freq, highest_freq - lowest_freq + 1)
-    print(list_cutoff_freq)
     for i in range(len(list_cutoff_freq)):
         filtered_signal = Butterworth(sampling_freq, list_cutoff_freq[i], signal)
         rms = RMS(signal, filtered_signal)
         residuals_list.append(rms)
-        print(rms)
-        print(filtered_signal)
 
     plt.plot(list_cutoff_freq, residuals_list)
-    plt.scatter(list_cutoff_freq, residuals_list)
+    plt.scatter(list_cutoff_freq, residuals_list, c='red')
     plt.xlabel("Cutoff Frequency (Hz)")
     plt.ylabel("RMS Residual Error")
     plt.grid(True)
