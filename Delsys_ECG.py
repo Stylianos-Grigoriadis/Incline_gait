@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P1'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P2'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -82,9 +82,9 @@ Acc_z = Acc_z[valid_idx]
 # lib.residual_analysis(Acc_z, fs_imu, 10, 150)
 
 # Filtering IMU low pass
-Acc_x = lib.Butterworth(fs_imu, 40, Acc_x)
-Acc_y = lib.Butterworth(fs_imu, 40, Acc_y)
-Acc_z = lib.Butterworth(fs_imu, 40, Acc_z)
+Acc_x = lib.Butterworth(fs_imu, 20, Acc_x)
+Acc_y = lib.Butterworth(fs_imu, 20, Acc_y)
+Acc_z = lib.Butterworth(fs_imu, 20, Acc_z)
 
 # Calculate the sum of squares for peak finding
 SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
@@ -92,8 +92,8 @@ SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
-Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
-Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=True)
+Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=True)
 
 # Filtering ECG notch
 ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
@@ -103,6 +103,8 @@ ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot
 # Make the EMG time series absolute
 Gastr_EMG = abs(Gastr_EMG)
 Quad_EMG = abs(Quad_EMG)
+plt.plot(Gastr_EMG)
+plt.show()
 
 # Linear envelope
 Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
@@ -156,15 +158,15 @@ directory_save = os.path.join(base_dir, str(ID), str(trial))
 print(directory_save)
 os.chdir(directory_save)
 
-if Peaks_ECG:
-    Peaks_ECG.to_excel("Peaks_" + str(trial) + ".xlsx")
-
-if Peaks_Gastr:
-    Peaks_Gastr.to_excel("Peaks_" + str(trial) + ".xlsx")
-
-if Peaks_Quad:
-    Peaks_Quad.to_excel("Peaks_" + str(trial) + ".xlsx")
-
-if Peaks_IMU:
-    Peaks_IMU.to_excel("Peaks_" + str(trial) + ".xlsx")
+# if Peaks_ECG:
+#     Peaks_ECG.to_excel("Peaks_" + str(trial) + ".xlsx")
+#
+# if Peaks_Gastr:
+#     Peaks_Gastr.to_excel("Peaks_" + str(trial) + ".xlsx")
+#
+# if Peaks_Quad:
+#     Peaks_Quad.to_excel("Peaks_" + str(trial) + ".xlsx")
+#
+# if Peaks_IMU:
+#     Peaks_IMU.to_excel("Peaks_" + str(trial) + ".xlsx")
 
