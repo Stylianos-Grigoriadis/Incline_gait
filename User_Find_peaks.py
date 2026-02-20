@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P2'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P1'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -92,8 +92,8 @@ SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
-Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=True)
-Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=True)
+Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
 
 # Filtering ECG notch
 ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
@@ -103,14 +103,14 @@ ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot
 # Make the EMG time series absolute
 Gastr_EMG = abs(Gastr_EMG)
 Quad_EMG = abs(Quad_EMG)
-plt.plot(Gastr_EMG)
-plt.show()
+
 
 # Linear envelope
 Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
 Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
 
 # Find peaks for ECG
+print("Peaks ECG")
 peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
     ECG,
     ECG_time,
@@ -121,6 +121,7 @@ peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
 )
 Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
 
+print("Peaks Gastr")
 peak_times_Gastr, peak_amplitude_Gastr = lib.interactive_find_peaks_with_sliders(
     Gastr_EMG_linear_envelope,
     Gastr_EMG_time,
@@ -131,6 +132,7 @@ peak_times_Gastr, peak_amplitude_Gastr = lib.interactive_find_peaks_with_sliders
 )
 Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
 
+print("Peaks Quad")
 peak_times_Quad, peak_amplitude_Quad = lib.interactive_find_peaks_with_sliders(
     Quad_EMG_linear_envelope,
     Quad_EMG_time,
@@ -141,6 +143,7 @@ peak_times_Quad, peak_amplitude_Quad = lib.interactive_find_peaks_with_sliders(
 )
 Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
 
+print("Peaks IMU")
 peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
     SS_acc,
     Acc_x_time,
@@ -158,15 +161,15 @@ directory_save = os.path.join(base_dir, str(ID), str(trial))
 print(directory_save)
 os.chdir(directory_save)
 
-# if Peaks_ECG:
-#     Peaks_ECG.to_excel("Peaks_" + str(trial) + ".xlsx")
-#
-# if Peaks_Gastr:
-#     Peaks_Gastr.to_excel("Peaks_" + str(trial) + ".xlsx")
-#
-# if Peaks_Quad:
-#     Peaks_Quad.to_excel("Peaks_" + str(trial) + ".xlsx")
-#
-# if Peaks_IMU:
-#     Peaks_IMU.to_excel("Peaks_" + str(trial) + ".xlsx")
+if Peaks_ECG is not None and not Peaks_ECG.empty:
+    Peaks_ECG.to_excel(f"Peaks_ECG_{trial}.xlsx")
+
+if Peaks_Gastr is not None and not Peaks_Gastr.empty:
+    Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}.xlsx")
+
+if Peaks_Quad is not None and not Peaks_Quad.empty:
+    Peaks_Quad.to_excel(f"Peaks_Quad_{trial}.xlsx")
+
+if Peaks_IMU is not None and not Peaks_IMU.empty:
+    Peaks_IMU.to_excel(f"Peaks_IMU_{trial}.xlsx")
 
