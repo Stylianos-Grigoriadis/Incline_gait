@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P1'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P4'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -117,7 +117,7 @@ peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
     distance_init=int(fs_emg/2),
     height_init=0.04,
     distance_range=(1, fs_emg),
-    height_range=(np.min(ECG), np.max(ECG))
+    height_range=(0, np.max(ECG))
 )
 Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
 
@@ -128,7 +128,7 @@ peak_times_Gastr, peak_amplitude_Gastr = lib.interactive_find_peaks_with_sliders
     distance_init=int(fs_emg/2),
     height_init=0.02,
     distance_range=(1, fs_emg),
-    height_range=(np.min(Gastr_EMG_linear_envelope), np.max(Gastr_EMG_linear_envelope))
+    height_range=(0, np.max(Gastr_EMG_linear_envelope))
 )
 Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
 
@@ -139,7 +139,7 @@ peak_times_Quad, peak_amplitude_Quad = lib.interactive_find_peaks_with_sliders(
     distance_init=int(fs_emg/2),
     height_init=0.02,
     distance_range=(1, fs_emg),
-    height_range=(np.min(Quad_EMG_linear_envelope), np.max(Quad_EMG_linear_envelope))
+    height_range=(0, np.max(Quad_EMG_linear_envelope))
 )
 Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
 
@@ -150,7 +150,7 @@ peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
     distance_init=int(fs_imu/2),
     height_init=5,
     distance_range=(1, fs_imu),
-    height_range=(np.min(SS_acc), np.max(SS_acc))
+    height_range=(0, np.max(SS_acc))
 )
 Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
 
