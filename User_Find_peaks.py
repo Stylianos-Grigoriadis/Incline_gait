@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data\P4'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P2'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -33,7 +33,7 @@ data_0_degree = (data_0_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_cha
 data_12_degree = (data_12_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 data_25_degree = (data_25_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 
-trial = 25
+trial = 0
 if trial == 0:
     data = data_0_degree
 elif trial == 12:

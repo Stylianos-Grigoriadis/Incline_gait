@@ -12,14 +12,7 @@ from matplotlib.widgets import Slider, SpanSelector
 from scipy.signal import find_peaks
 
 
-def interactive_find_peaks_with_sliders(
-    signal,
-    time,
-    distance_init=200,
-    height_init=0.02,
-    distance_range=(1, 1000),
-    height_range=(0.0, 1.0)
-):
+def interactive_find_peaks_with_sliders(signal, time, distance_init=200, height_init=0.02, distance_range=(1, 1000), height_range=(0.0, 1.0)):
     """
     Interactive peak detection and manual refinement tool.
 
@@ -244,8 +237,6 @@ def interactive_find_peaks_with_sliders(
         np.array(state["peak_times"]),
         np.array(state["peak_amp"])
     )
-
-
 
 def plot_to_check_find_peaks_algo(signal, signal_time, peak_times, peak_amplitude, downsample=None):
     """
@@ -558,22 +549,7 @@ def notch_filter_with_plots(x, fs, f_notch=50.0, bandwidth=1.5, plot=False):
 
     return y
 
-
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider, TextBox
-from scipy.signal import butter, filtfilt
-from scipy.fft import fft, fftfreq
-
-
-def butter_bandpass_filtfilt(
-    x,
-    fs,
-    low=0.01,
-    high=0.30,
-    order=4,
-    plot=False
-):
+def butter_bandpass_filtfilt(x, fs, low=0.01, high=0.30, order=4, plot=False):
     """
     Zero-phase Butterworth band-pass filter.
 
@@ -737,8 +713,6 @@ def butter_bandpass_filtfilt(
     # RETURN FINAL FILTERED SIGNAL
     # --------------------------------------------------
     return apply_filter(slider_low.val, slider_high.val)
-
-
 
 def FFT_fast(var, fs):
     dt = 1 / fs
@@ -1135,3 +1109,156 @@ def RMS(original, filtered):
     residual = original - filtered
     rms = np.sqrt(np.mean(residual ** 2))
     return rms
+
+
+def dfa(data, scales, order=1, plot=True):
+    """Perform Detrended Fluctuation Analysis on data
+
+    Inputs:
+        data: 1D numpy array of time series to be analyzed.
+        scales: List or array of scales to calculate fluctuations
+        order: Integer of polynomial fit (default=1 for linear)
+        plot: Return loglog plot (default=True to return plot)
+
+    Outputs:
+        scales: The scales that were entered as input
+        fluctuations: Variability measured at each scale with RMS
+        alpha value: Value quantifying the relationship between the scales
+                     and fluctuations
+
+....References:
+........Damouras, S., Chang, M. D., Sejdi, E., & Chau, T. (2010). An empirical
+..........examination of detrended fluctuation analysis for gait data. Gait &
+..........posture, 31(3), 336-340.
+........Mirzayof, D., & Ashkenazy, Y. (2010). Preservation of long range
+..........temporal correlations under extreme random dilution. Physica A:
+..........Statistical Mechanics and its Applications, 389(24), 5573-5580.
+........Peng, C. K., Havlin, S., Stanley, H. E., & Goldberger, A. L. (1995).
+..........Quantification of scaling exponents and crossover phenomena in
+..........nonstationary heartbeat time series. Chaos: An Interdisciplinary
+..........Journal of Nonlinear Science, 5(1), 82-87.
+# =============================================================================
+                            ------ EXAMPLE ------
+
+      - Generate random data
+      data = np.random.randn(5000)
+
+      - Create a vector of the scales you want to use
+      scales = [10, 20, 40, 80, 160, 320, 640, 1280, 2560]
+
+      - Set a detrending order. Use 1 for a linear detrend.
+      order = 1
+
+      - run dfa function
+      s, f, a = dfa(data, scales, order, plot=True)
+# =============================================================================
+"""
+
+    # Check if data is a column vector (2D array with one column)
+    if data.shape[0] == 1:
+        # Reshape the data to be a column vector
+        data = data.reshape(-1, 1)
+    else:
+        # Data is already a column vector
+        data = data
+
+    # =============================================================================
+    ##########################   START DFA CALCULATION   ##########################
+    # =============================================================================
+
+    # Step 1: Integrate the data
+    integrated_data = np.cumsum(data - np.mean(data))
+
+    fluctuation = []
+
+    for scale in scales:
+        # Step 2: Divide data into non-overlapping window of size 'scale'
+        chunks = len(data) // scale
+        ms = 0.0
+
+        for i in range(chunks):
+            this_chunk = integrated_data[i * scale:(i + 1) * scale]
+            x = np.arange(len(this_chunk))
+
+            # Step 3: Fit polynomial (default is linear, i.e., order=1)
+            coeffs = np.polyfit(x, this_chunk, order)
+            fit = np.polyval(coeffs, x)
+
+            # Detrend and calculate RMS for the current window
+            ms += np.mean((this_chunk - fit) ** 2)
+
+            # Calculate average RMS for this scale
+        fluctuation.append(np.sqrt(ms / chunks))
+
+        # Perform linear regression
+    alpha, intercept = np.polyfit(np.log(scales), np.log(fluctuation), 1)
+
+    # Create a log-log plot to visualize the results
+    if plot:
+        plt.figure(figsize=(8, 6))
+        plt.loglog(scales, fluctuation, marker='o', markerfacecolor='red', markersize=8,
+                   linestyle='-', color='black', linewidth=1.7, label=f'Alpha = {alpha:.3f}')
+        plt.xlabel('Scale (log)')
+        plt.ylabel('Fluctuation (log)')
+        plt.legend()
+        plt.title('Detrended Fluctuation Analysis')
+        plt.grid(True)
+        plt.show()
+
+    # Return the scales used, fluctuation functions and the alpha value
+    return scales, fluctuation, alpha
+
+def Ent_Samp(data, m, r):
+    """
+    function SE = Ent_Samp20200723(data,m,r)
+    SE = Ent_Samp20200723(data,m,R) Returns the sample entropy value.
+    inputs - data, single column time seres
+            - m, length of vectors to be compared
+            - r, radius for accepting matches (as a proportion of the
+              standard deviation)
+
+    output - SE, sample entropy
+    Remarks
+    - This code finds the sample entropy of a data series using the method
+      described by - Richman, J.S., Moorman, J.R., 2000. "Physiological
+      time-series analysis using approximate entropy and sample entropy."
+      Am. J. Physiol. Heart Circ. Physiol. 278, H2039–H2049.
+    - m is generally recommendation as 2
+    - R is generally recommendation as 0.2
+    May 2016 - Modified by John McCamley, unonbcf@unomaha.edu
+             - This is a faster version of the previous code.
+    May 2019 - Modified by Will Denton
+             - Added code to check version number in relation to a server
+               and to automatically update the code.
+    Jul 2020 - Modified by Ben Senderling, bmchnonan@unomaha.edu
+             - Removed the code that automatically checks for updates and
+               keeps a version history.
+    Define r as R times the standard deviation
+    """
+    R = r * np.std(data)
+    N = len(data)
+
+    data = np.array(data)
+
+    dij = np.zeros((N - m, m + 1))
+    dj = np.zeros((N - m, 1))
+    dj1 = np.zeros((N - m, 1))
+    Bm = np.zeros((N - m, 1))
+    Am = np.zeros((N - m, 1))
+
+    for i in range(N - m):
+        for k in range(m + 1):
+            dij[:, k] = np.abs(data[k:N - m + k] - data[i + k])
+        dj = np.max(dij[:, 0:m], axis=1)
+        dj1 = np.max(dij, axis=1)
+        d = np.where(dj <= R)
+        d1 = np.where(dj1 <= R)
+        nm = d[0].shape[0] - 1  # subtract the self match
+        Bm[i] = nm / (N - m)
+        nm1 = d1[0].shape[0] - 1  # subtract the self match
+        Am[i] = nm1 / (N - m)
+
+    Bmr = np.sum(Bm) / (N - m)
+    Amr = np.sum(Am) / (N - m)
+
+    return -np.log(Amr / Bmr)
