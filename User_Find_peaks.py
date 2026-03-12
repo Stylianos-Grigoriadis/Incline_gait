@@ -33,7 +33,7 @@ data_0_degree = (data_0_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_cha
 data_12_degree = (data_12_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 data_25_degree = (data_25_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 
-trial = 0
+trial = 25
 if trial == 0:
     data = data_0_degree
 elif trial == 12:
