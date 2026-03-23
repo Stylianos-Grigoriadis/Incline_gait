@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P2'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P3'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -92,8 +92,8 @@ SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
-Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
-Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=True)
+Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=True)
 
 # Filtering ECG notch
 ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
@@ -106,8 +106,8 @@ Quad_EMG = abs(Quad_EMG)
 
 
 # Linear envelope
-Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
-Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
+Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=True)
+Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=True)
 
 # Find peaks for ECG
 print("Peaks ECG")
