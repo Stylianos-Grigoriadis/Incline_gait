@@ -10,6 +10,7 @@ from scipy.stats import pearsonr, spearmanr
 from scipy.signal import butter, filtfilt, sosfiltfilt, iirnotch
 from matplotlib.widgets import Slider, SpanSelector
 from scipy.signal import find_peaks
+from matplotlib.widgets import Slider, TextBox
 
 
 def interactive_find_peaks_with_sliders(signal, time, distance_init=200, height_init=0.02, distance_range=(1, 1000), height_range=(0.0, 1.0)):
@@ -237,6 +238,282 @@ def interactive_find_peaks_with_sliders(signal, time, distance_init=200, height_
         np.array(state["peak_times"]),
         np.array(state["peak_amp"])
     )
+
+
+
+
+def interactive_find_peaks_with_sliders_low_pass(
+    signal,
+    time,
+    fs,
+    distance_init=200,
+    height_init=0.02,
+    lowpass_init=10,
+    distance_range=(1, 1000),
+    height_range=(0.0, 1.0),
+    lowpass_range=(1, 50),
+    filter_order=4
+):
+    """
+    Interactive peak detection and manual refinement tool.
+
+    Features
+    --------
+    - Automatic peak detection using scipy.signal.find_peaks
+    - Three sliders to adjust:
+        * minimum peak distance
+        * minimum peak height
+        * low-pass cutoff frequency
+    - Span-based manual editing on the top plot:
+        * DELETE / BACKSPACE: remove peaks in span
+        * SPACE: add a peak at the maximum signal value in span
+    - Lower plot shows inter-peak intervals (np.diff)
+
+    Parameters
+    ----------
+    signal : np.ndarray
+        Original signal
+    time : np.ndarray
+        Time vector
+    fs : float
+        Sampling frequency
+    distance_init : int
+        Initial minimum peak distance
+    height_init : float
+        Initial minimum peak height
+    lowpass_init : float
+        Initial low-pass cutoff frequency (Hz)
+    distance_range : tuple
+        Min/max for distance slider
+    height_range : tuple
+        Min/max for height slider
+    lowpass_range : tuple
+        Min/max for low-pass cutoff slider
+    filter_order : int
+        Butterworth filter order
+
+    Returns
+    -------
+    peak_times : np.ndarray
+    peak_amplitudes : np.ndarray
+    """
+
+    signal = np.asarray(signal)
+    time = np.asarray(time)
+
+    state = {
+        "distance": distance_init,
+        "height": height_init,
+        "lowpass": lowpass_init,
+        "filtered_signal": signal.copy(),
+        "peak_times": [],
+        "peak_amp": []
+    }
+
+    def apply_lowpass(x, cutoff):
+        nyq = fs / 2.0
+        wn = cutoff / nyq
+
+        if not (0 < wn < 1):
+            return x.copy()
+
+        b, a = butter(filter_order, wn, btype="low")
+        padlen = min(len(x) - 1, 3 * max(len(a), len(b)))
+        y = filtfilt(b, a, x, padtype='odd', padlen=padlen)
+        return y
+
+    def detect_peaks():
+        state["filtered_signal"] = apply_lowpass(signal, state["lowpass"])
+
+        idx, props = find_peaks(
+            state["filtered_signal"],
+            distance=state["distance"],
+            height=state["height"]
+        )
+
+        state["peak_times"] = time[idx].tolist()
+        state["peak_amp"] = state["filtered_signal"][idx].tolist()
+
+    detect_peaks()
+
+    fig = plt.figure(figsize=(13, 8))
+
+    gs = fig.add_gridspec(
+        5, 1,
+        height_ratios=[4, 1, 0.2, 0.2, 0.2]
+    )
+
+    ax_sig = fig.add_subplot(gs[0])
+    ax_rr = fig.add_subplot(gs[1], sharex=ax_sig)
+    ax_dist = fig.add_subplot(gs[2])
+    ax_height = fig.add_subplot(gs[3])
+    ax_lowpass = fig.add_subplot(gs[4])
+
+    plt.subplots_adjust(hspace=0.08)
+
+    try:
+        fig.canvas.manager.toolbar.set_visible(False)
+    except Exception:
+        pass
+
+    line_raw, = ax_sig.plot(time, signal, color="lightgray", lw=1.0, label="Original")
+    line_filt, = ax_sig.plot(time, state["filtered_signal"], color="royalblue", lw=1.5, label="Filtered")
+    scatter = ax_sig.scatter([], [], color="red", zorder=3, label="Peaks")
+
+    vlines = []
+    rr_line, = ax_rr.plot([], [], color="darkorange", lw=1.5)
+
+    ax_sig.set_title("Interactive Peak Detection")
+    ax_sig.set_ylabel("Amplitude")
+    ax_rr.set_ylabel("Δ Time (s)")
+    ax_rr.set_xlabel("Time (s)")
+
+    ax_sig.grid(alpha=0.3)
+    ax_rr.grid(alpha=0.3)
+    ax_sig.legend(loc="upper right")
+
+    span = {"xmin": None, "xmax": None}
+
+    def on_span(xmin, xmax):
+        span["xmin"] = min(xmin, xmax)
+        span["xmax"] = max(xmin, xmax)
+        print(f"Selected span: {span['xmin']:.3f} – {span['xmax']:.3f} s")
+
+    span_selector = SpanSelector(
+        ax_sig,
+        on_span,
+        direction="horizontal",
+        useblit=False,
+        props=dict(alpha=0.25, facecolor="gray"),
+        interactive=True
+    )
+    span_selector.active = True
+
+    def update_plots():
+        xlim = ax_sig.get_xlim()
+        ylim = ax_sig.get_ylim()
+
+        line_filt.set_ydata(state["filtered_signal"])
+
+        if state["peak_times"]:
+            scatter.set_offsets(np.c_[state["peak_times"], state["peak_amp"]])
+        else:
+            scatter.set_offsets(np.empty((0, 2)))
+
+        for ln in vlines:
+            ln.remove()
+        vlines.clear()
+
+        for t_peak in state["peak_times"]:
+            vlines.append(ax_sig.axvline(t_peak, color="red", ls="--", alpha=0.3))
+
+        if len(state["peak_times"]) > 1:
+            rr = np.diff(state["peak_times"])
+            rr_line.set_data(state["peak_times"][1:], rr)
+            ax_rr.relim()
+            ax_rr.autoscale_view()
+        else:
+            rr_line.set_data([], [])
+
+        ax_sig.set_title(
+            f"Interactive Peak Detection | Low-pass: {state['lowpass']:.1f} Hz"
+        )
+
+        ax_sig.set_xlim(xlim)
+        ax_sig.set_ylim(ylim)
+
+        fig.canvas.draw_idle()
+
+    update_plots()
+
+    s_distance = Slider(
+        ax_dist,
+        "Distance",
+        distance_range[0],
+        distance_range[1],
+        valinit=distance_init,
+        valstep=1
+    )
+
+    s_height = Slider(
+        ax_height,
+        "Height",
+        height_range[0],
+        height_range[1],
+        valinit=height_init
+    )
+
+    s_lowpass = Slider(
+        ax_lowpass,
+        "Low-pass (Hz)",
+        lowpass_range[0],
+        lowpass_range[1],
+        valinit=lowpass_init,
+        valstep=1
+    )
+
+    def on_slider_change(val):
+        state["distance"] = int(s_distance.val)
+        state["height"] = s_height.val
+        state["lowpass"] = s_lowpass.val
+        detect_peaks()
+        update_plots()
+
+    s_distance.on_changed(on_slider_change)
+    s_height.on_changed(on_slider_change)
+    s_lowpass.on_changed(on_slider_change)
+
+    def on_key(event):
+        if event.key in ("delete", "backspace"):
+            if span["xmin"] is None:
+                return
+
+            keep = [
+                i for i, t_peak in enumerate(state["peak_times"])
+                if not (span["xmin"] <= t_peak <= span["xmax"])
+            ]
+
+            if len(keep) == len(state["peak_times"]):
+                return
+
+            state["peak_times"] = [state["peak_times"][i] for i in keep]
+            state["peak_amp"] = [state["peak_amp"][i] for i in keep]
+
+            update_plots()
+
+        elif event.key == " ":
+            if span["xmin"] is None:
+                return
+
+            mask = (time >= span["xmin"]) & (time <= span["xmax"])
+            if not np.any(mask):
+                return
+
+            sig_use = state["filtered_signal"]
+
+            idx_local = np.argmax(sig_use[mask])
+            idx_global = np.where(mask)[0][idx_local]
+
+            t_new = time[idx_global]
+            a_new = sig_use[idx_global]
+
+            state["peak_times"].append(t_new)
+            state["peak_amp"].append(a_new)
+
+            order = np.argsort(state["peak_times"])
+            state["peak_times"] = [state["peak_times"][i] for i in order]
+            state["peak_amp"] = [state["peak_amp"][i] for i in order]
+
+            update_plots()
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+
+    plt.tight_layout()
+    plt.show()
+
+    return np.array(state["peak_times"]), np.array(state["peak_amp"])
+
+
 
 def plot_to_check_find_peaks_algo(signal, signal_time, peak_times, peak_amplitude, downsample=None):
     """

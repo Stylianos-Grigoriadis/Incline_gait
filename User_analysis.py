@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 fs_emg = 2148.1481
 fs_imu = 370.3704
 
-directory_general = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data\P2'
+directory_general = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data\P3'
 ID = os.path.basename(directory_general)
 print(ID)
 
