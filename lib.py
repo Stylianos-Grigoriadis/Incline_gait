@@ -248,7 +248,7 @@ def interactive_find_peaks_with_sliders_low_pass(
     fs,
     distance_init=200,
     height_init=0.02,
-    lowpass_init=10,
+    lowpass_init=12,
     distance_range=(1, 1000),
     height_range=(0.0, 1.0),
     lowpass_range=(1, 50),
@@ -511,8 +511,7 @@ def interactive_find_peaks_with_sliders_low_pass(
     plt.tight_layout()
     plt.show()
 
-    return np.array(state["peak_times"]), np.array(state["peak_amp"])
-
+    return np.array(state["peak_times"]), np.array(state["peak_amp"]), state["lowpass"]
 
 
 def plot_to_check_find_peaks_algo(signal, signal_time, peak_times, peak_amplitude, downsample=None):

@@ -12,9 +12,9 @@ import polars as pl
 """
 fs_emg = 2148.1481
 fs_imu = 370.3704
+custom_filtering_to_EMG = True
 
-
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P4'
+directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P5'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -106,8 +106,8 @@ Quad_EMG = abs(Quad_EMG)
 
 
 # Linear envelope
-Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
-Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
+# Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
+# Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
 
 # Find peaks for ECG
 print("Peaks ECG")
@@ -122,25 +122,26 @@ peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
 Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
 
 print("Peaks Gastr")
-peak_times_Gastr, peak_amplitude_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
+peak_times_Gastr, peak_amplitude_Gastr, low_cut_off_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
     Gastr_EMG,
     Gastr_EMG_time,
     fs=fs_emg,
     distance_init=int(fs_emg/2),
     height_init=0.02,
     distance_range=(1, fs_emg),
-    height_range=(0, np.max(Gastr_EMG_linear_envelope))
+    height_range=(0, np.max(Gastr_EMG))
 )
 Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
 
 print("Peaks Quad")
-peak_times_Quad, peak_amplitude_Quad = lib.interactive_find_peaks_with_sliders(
-    Quad_EMG_linear_envelope,
+peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+    Quad_EMG,
     Quad_EMG_time,
+    fs=fs_emg,
     distance_init=int(fs_emg/2),
     height_init=0.02,
     distance_range=(1, fs_emg),
-    height_range=(0, np.max(Quad_EMG_linear_envelope))
+    height_range=(0, np.max(Quad_EMG))
 )
 Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
 
@@ -164,13 +165,19 @@ os.chdir(directory_save)
 
 # if Peaks_ECG is not None and not Peaks_ECG.empty:
 #     Peaks_ECG.to_excel(f"Peaks_ECG_{trial}.xlsx")
-#
-# if Peaks_Gastr is not None and not Peaks_Gastr.empty:
-#     Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}.xlsx")
-#
-# if Peaks_Quad is not None and not Peaks_Quad.empty:
-#     Peaks_Quad.to_excel(f"Peaks_Quad_{trial}.xlsx")
-#
+
+if Peaks_Gastr is not None and not Peaks_Gastr.empty:
+    if not custom_filtering_to_EMG:
+        Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}.xlsx")
+    else:
+        Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}_low_filtered_{low_cut_off_Gastr}.xlsx")
+
+if Peaks_Quad is not None and not Peaks_Quad.empty:
+    if not custom_filtering_to_EMG:
+        Peaks_Quad.to_excel(f"Peaks_Quad_{trial}.xlsx")
+    else:
+        Peaks_Quad.to_excel(f"Peaks_Quad_{trial}_low_filtered_{low_cut_off_Quad}.xlsx")
+
 # if Peaks_IMU is not None and not Peaks_IMU.empty:
 #     Peaks_IMU.to_excel(f"Peaks_IMU_{trial}.xlsx")
 

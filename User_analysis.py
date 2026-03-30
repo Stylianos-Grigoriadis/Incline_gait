@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 fs_emg = 2148.1481
 fs_imu = 370.3704
 
-directory_general = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data\P3'
+directory_general = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data\P2'
 ID = os.path.basename(directory_general)
 print(ID)
 
@@ -81,9 +81,13 @@ for trial in trials:
         df_CV.loc[trial, name] = np.std(data) / np.mean(data)
 
         scales = np.arange(16, len(data)//9, 1)
+        # if name == "Quad" and trial == 0:
+        #     df_DFA.loc[trial, name] = "NaN"
+        #     df_SaEn.loc[trial, name] = "NaN"
+        #
+        # else:
         _, _, dfa = lib.dfa(data, scales, plot=False)
         df_DFA.loc[trial, name] = dfa
-
         df_SaEn.loc[trial, name] = lib.Ent_Samp(data, 2, 0.2)
 
 fig.update_layout(
