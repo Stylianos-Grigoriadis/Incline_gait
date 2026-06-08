@@ -13,6 +13,670 @@ from scipy.signal import find_peaks
 from matplotlib.widgets import Slider, TextBox
 
 
+def plot_emg_threshold_mountains(data_series, time_series, sampling_freq, cutoff_freq, baseline_percentile=50, peak_threshold_percentile=75, min_duration=0.3, filter_order=4, show_vertical_lines=True, show_peak_dots=True, show_prints=True, cutoff_range=(1, 50), baseline_percentile_range=(1, 99), peak_threshold_percentile_range=(1, 99), min_duration_range=(0.05, 1.0)):
+    """
+    Interactive EMG threshold plot.
+
+    Returns after closing the graph:
+    1. peak_amplitudes
+    2. peak_times
+    3. auc_values
+    4. final cutoff frequency
+
+    AUC is calculated as the area under the EMG linear envelope
+    between the start and end of each valid mountain.
+    """
+
+    # =========================
+    # Convert to arrays
+    # =========================
+    data_series = np.asarray(data_series).squeeze()
+    time_series = np.asarray(time_series).squeeze()
+
+    state = {
+        "cutoff_freq": cutoff_freq,
+        "baseline_percentile": baseline_percentile,
+        "peak_threshold_percentile": peak_threshold_percentile,
+        "min_duration": min_duration,
+        "emg_linear_env": None,
+        "activation_threshold": None,
+        "peak_threshold": None,
+        "valid_mask": None,
+        "above_threshold": None,
+        "valid_start_times": [],
+        "valid_end_times": [],
+        "valid_durations": [],
+        "valid_peak_times": [],
+        "valid_peak_amps": [],
+        "valid_auc_values": [],
+        "valid_sources": []
+    }
+
+    selected_span = {
+        "xmin": None,
+        "xmax": None
+    }
+
+    deleted_spans = []
+    manual_spans = []
+
+    # =========================
+    # Helper functions
+    # =========================
+    def spans_overlap(start_1, end_1, start_2, end_2):
+        return start_1 <= end_2 and end_1 >= start_2
+
+    def mountain_overlaps_deleted_span(start_time, end_time):
+        for deleted_start, deleted_end in deleted_spans:
+            if spans_overlap(start_time, end_time, deleted_start, deleted_end):
+                return True
+
+        return False
+
+    def mountain_overlaps_manual_span(start_time, end_time):
+        for manual_start, manual_end in manual_spans:
+            if spans_overlap(start_time, end_time, manual_start, manual_end):
+                return True
+
+        return False
+
+    def remove_deleted_spans_overlapping_span(span_start, span_end):
+        kept_deleted_spans = []
+
+        for deleted_start, deleted_end in deleted_spans:
+            if not spans_overlap(deleted_start, deleted_end, span_start, span_end):
+                kept_deleted_spans.append((deleted_start, deleted_end))
+
+        deleted_spans.clear()
+        deleted_spans.extend(kept_deleted_spans)
+
+    def remove_manual_spans_overlapping_span(span_start, span_end):
+        kept_manual_spans = []
+
+        for manual_start, manual_end in manual_spans:
+            if not spans_overlap(manual_start, manual_end, span_start, span_end):
+                kept_manual_spans.append((manual_start, manual_end))
+
+        manual_spans.clear()
+        manual_spans.extend(kept_manual_spans)
+
+    # =========================
+    # Main calculation function
+    # =========================
+    def calculate_mountains():
+        emg_linear_env = emg_linear_envelope(
+            data_series,
+            sampling_freq,
+            cutoff=state["cutoff_freq"],
+            order=filter_order,
+            plot=False
+        )
+
+        activation_threshold = np.percentile(emg_linear_env, state["baseline_percentile"])
+        peak_threshold = np.percentile(emg_linear_env, state["peak_threshold_percentile"])
+
+        above_threshold = emg_linear_env >= activation_threshold
+        changes = np.diff(above_threshold.astype(int))
+
+        start_indices = np.where(changes == 1)[0] + 1
+        end_indices = np.where(changes == -1)[0] + 1
+
+        if above_threshold[0]:
+            start_indices = np.insert(start_indices, 0, 0)
+
+        if above_threshold[-1]:
+            end_indices = np.append(end_indices, len(emg_linear_env) - 1)
+
+        def interpolate_start_time(idx):
+            if idx == 0:
+                return time_series[0]
+
+            t1, t2 = time_series[idx - 1], time_series[idx]
+            y1, y2 = emg_linear_env[idx - 1], emg_linear_env[idx]
+
+            if y2 == y1:
+                return t2
+
+            return t1 + (activation_threshold - y1) * (t2 - t1) / (y2 - y1)
+
+        def interpolate_end_time(idx):
+            if idx >= len(emg_linear_env):
+                return time_series[-1]
+
+            t1, t2 = time_series[idx - 1], time_series[idx]
+            y1, y2 = emg_linear_env[idx - 1], emg_linear_env[idx]
+
+            if y2 == y1:
+                return t2
+
+            return t1 + (activation_threshold - y1) * (t2 - t1) / (y2 - y1)
+
+        def calculate_auc(start_idx, segment_end_idx):
+            if segment_end_idx <= start_idx:
+                return np.nan
+
+            auc = np.trapz(
+                emg_linear_env[start_idx:segment_end_idx],
+                time_series[start_idx:segment_end_idx]
+            )
+
+            return auc
+
+        valid_mask = np.zeros_like(above_threshold, dtype=bool)
+
+        valid_start_times = []
+        valid_end_times = []
+        valid_durations = []
+        valid_peak_times = []
+        valid_peak_amps = []
+        valid_auc_values = []
+        valid_sources = []
+
+        # =========================
+        # Automatic mountains
+        # =========================
+        for start_idx, end_idx in zip(start_indices, end_indices):
+            start_time = interpolate_start_time(start_idx)
+
+            if end_idx == len(emg_linear_env) - 1 and above_threshold[-1]:
+                end_time = time_series[-1]
+                segment_end_idx = end_idx + 1
+            else:
+                end_time = interpolate_end_time(end_idx)
+                segment_end_idx = end_idx
+
+            duration = end_time - start_time
+
+            if segment_end_idx <= start_idx:
+                continue
+
+            peak_local_idx = np.argmax(emg_linear_env[start_idx:segment_end_idx])
+            peak_global_idx = start_idx + peak_local_idx
+
+            peak_time = time_series[peak_global_idx]
+            peak_amp = emg_linear_env[peak_global_idx]
+            auc_value = calculate_auc(start_idx, segment_end_idx)
+
+            valid_duration = duration >= state["min_duration"]
+            valid_peak = peak_amp >= peak_threshold
+            not_deleted = not mountain_overlaps_deleted_span(start_time, end_time)
+            not_manual = not mountain_overlaps_manual_span(start_time, end_time)
+
+            if valid_duration and valid_peak and not_deleted and not_manual:
+                valid_start_times.append(start_time)
+                valid_end_times.append(end_time)
+                valid_durations.append(duration)
+
+                valid_peak_times.append(peak_time)
+                valid_peak_amps.append(peak_amp)
+                valid_auc_values.append(auc_value)
+                valid_sources.append("auto")
+
+                valid_mask[start_idx:segment_end_idx] = True
+
+        # =========================
+        # Get valid above-threshold runs inside selected span
+        # =========================
+        def get_valid_runs_inside_span(manual_start, manual_end):
+            span_indices = np.where((time_series >= manual_start) & (time_series <= manual_end))[0]
+
+            if len(span_indices) < 2:
+                return []
+
+            span_above = above_threshold[span_indices]
+
+            if not np.any(span_above):
+                return []
+
+            span_changes = np.diff(span_above.astype(int))
+
+            local_start_indices = np.where(span_changes == 1)[0] + 1
+            local_end_indices = np.where(span_changes == -1)[0] + 1
+
+            if span_above[0]:
+                local_start_indices = np.insert(local_start_indices, 0, 0)
+
+            if span_above[-1]:
+                local_end_indices = np.append(local_end_indices, len(span_above))
+
+            runs = []
+
+            for local_start_idx, local_end_idx in zip(local_start_indices, local_end_indices):
+                start_idx = span_indices[local_start_idx]
+
+                if local_end_idx >= len(span_indices):
+                    segment_end_idx = min(span_indices[-1] + 1, len(emg_linear_env))
+                else:
+                    segment_end_idx = span_indices[local_end_idx]
+
+                if segment_end_idx <= start_idx:
+                    continue
+
+                start_time = interpolate_start_time(start_idx)
+
+                if segment_end_idx >= len(emg_linear_env):
+                    end_time = time_series[-1]
+                else:
+                    end_time = interpolate_end_time(segment_end_idx)
+
+                duration = end_time - start_time
+
+                if duration < state["min_duration"]:
+                    continue
+
+                peak_local_idx = np.argmax(emg_linear_env[start_idx:segment_end_idx])
+                peak_global_idx = start_idx + peak_local_idx
+
+                peak_time = time_series[peak_global_idx]
+                peak_amp = emg_linear_env[peak_global_idx]
+
+                runs.append(
+                    {
+                        "start_idx": start_idx,
+                        "segment_end_idx": segment_end_idx,
+                        "start_time": start_time,
+                        "end_time": end_time,
+                        "duration": duration,
+                        "peak_time": peak_time,
+                        "peak_amp": peak_amp
+                    }
+                )
+
+            return runs
+
+        # =========================
+        # Combine edge-based manual runs into one manual mountain
+        # =========================
+        def create_combined_manual_mountain(manual_start, manual_end):
+            candidate_runs = get_valid_runs_inside_span(manual_start, manual_end)
+
+            if len(candidate_runs) == 0:
+                return None
+
+            left_candidate = candidate_runs[0]
+            right_candidate = candidate_runs[-1]
+
+            combined_start_idx = left_candidate["start_idx"]
+            combined_segment_end_idx = right_candidate["segment_end_idx"]
+
+            if combined_segment_end_idx <= combined_start_idx:
+                return None
+
+            combined_start_time = left_candidate["start_time"]
+            combined_end_time = right_candidate["end_time"]
+            combined_duration = combined_end_time - combined_start_time
+
+            if combined_duration < state["min_duration"]:
+                return None
+
+            peak_local_idx = np.argmax(emg_linear_env[combined_start_idx:combined_segment_end_idx])
+            peak_global_idx = combined_start_idx + peak_local_idx
+
+            peak_time = time_series[peak_global_idx]
+            peak_amp = emg_linear_env[peak_global_idx]
+            auc_value = calculate_auc(combined_start_idx, combined_segment_end_idx)
+
+            return {
+                "start_idx": combined_start_idx,
+                "segment_end_idx": combined_segment_end_idx,
+                "start_time": combined_start_time,
+                "end_time": combined_end_time,
+                "duration": combined_duration,
+                "peak_time": peak_time,
+                "peak_amp": peak_amp,
+                "auc_value": auc_value
+            }
+
+        # =========================
+        # Manual mountains
+        # =========================
+        for manual_start, manual_end in manual_spans:
+            manual_mountain = create_combined_manual_mountain(manual_start, manual_end)
+
+            if manual_mountain is None:
+                continue
+
+            start_time = manual_mountain["start_time"]
+            end_time = manual_mountain["end_time"]
+
+            if mountain_overlaps_deleted_span(start_time, end_time):
+                continue
+
+            valid_start_times.append(start_time)
+            valid_end_times.append(end_time)
+            valid_durations.append(manual_mountain["duration"])
+
+            valid_peak_times.append(manual_mountain["peak_time"])
+            valid_peak_amps.append(manual_mountain["peak_amp"])
+            valid_auc_values.append(manual_mountain["auc_value"])
+            valid_sources.append("manual")
+
+            valid_mask[manual_mountain["start_idx"]:manual_mountain["segment_end_idx"]] = True
+
+        state["emg_linear_env"] = emg_linear_env
+        state["activation_threshold"] = activation_threshold
+        state["peak_threshold"] = peak_threshold
+        state["valid_mask"] = valid_mask
+        state["above_threshold"] = above_threshold
+        state["valid_start_times"] = valid_start_times
+        state["valid_end_times"] = valid_end_times
+        state["valid_durations"] = valid_durations
+        state["valid_peak_times"] = valid_peak_times
+        state["valid_peak_amps"] = valid_peak_amps
+        state["valid_auc_values"] = valid_auc_values
+        state["valid_sources"] = valid_sources
+
+    calculate_mountains()
+
+    # =========================
+    # Create figure
+    # =========================
+    fig = plt.figure(figsize=(14, 6.5))
+
+    gs = fig.add_gridspec(
+        5,
+        1,
+        height_ratios=[5, 0.25, 0.25, 0.25, 0.25]
+    )
+
+    ax_sig = fig.add_subplot(gs[0])
+    ax_cutoff = fig.add_subplot(gs[1])
+    ax_baseline = fig.add_subplot(gs[2])
+    ax_peak_threshold = fig.add_subplot(gs[3])
+    ax_duration = fig.add_subplot(gs[4])
+
+    plt.subplots_adjust(hspace=0.35)
+
+    # =========================
+    # Initial plot
+    # =========================
+    line_emg, = ax_sig.plot(
+        time_series,
+        state["emg_linear_env"],
+        color="royalblue",
+        linewidth=1.2,
+        label="Filtered EMG"
+    )
+
+    activation_threshold_line = ax_sig.axhline(
+        state["activation_threshold"],
+        color="red",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Activation threshold = {state['activation_threshold']:.4f}"
+    )
+
+    peak_threshold_line = ax_sig.axhline(
+        state["peak_threshold"],
+        color="green",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"Peak threshold = {state['peak_threshold']:.4f}"
+    )
+
+    fill_area = ax_sig.fill_between(
+        time_series,
+        state["emg_linear_env"],
+        state["activation_threshold"],
+        where=state["valid_mask"] & state["above_threshold"],
+        interpolate=True,
+        color="red",
+        alpha=0.35,
+        label=f"Valid area ≥ {state['min_duration']:.2f} s"
+    )
+
+    if show_peak_dots and len(state["valid_peak_times"]) > 0:
+        peak_offsets = np.column_stack((state["valid_peak_times"], state["valid_peak_amps"]))
+    else:
+        peak_offsets = np.empty((0, 2))
+
+    peak_scatter = ax_sig.scatter(
+        peak_offsets[:, 0],
+        peak_offsets[:, 1],
+        color="red",
+        edgecolor="black",
+        s=45,
+        zorder=5,
+        label="Valid peak" if show_peak_dots else "_nolegend_"
+    )
+
+    vertical_lines = []
+
+    def add_vertical_lines():
+        if show_vertical_lines:
+            for i, (start_time, end_time) in enumerate(zip(state["valid_start_times"], state["valid_end_times"])):
+                vertical_lines.append(
+                    ax_sig.axvline(
+                        start_time,
+                        color="black",
+                        linestyle="-",
+                        linewidth=1.2,
+                        alpha=0.9,
+                        label="Start/end" if i == 0 else None
+                    )
+                )
+
+                vertical_lines.append(
+                    ax_sig.axvline(
+                        end_time,
+                        color="black",
+                        linestyle="-",
+                        linewidth=1.2,
+                        alpha=0.9
+                    )
+                )
+
+    add_vertical_lines()
+
+    ax_sig.set_xlabel("Time (s)")
+    ax_sig.set_ylabel("Amplitude")
+    ax_sig.set_title("EMG with Thresholds and Valid Activation Bursts")
+    ax_sig.grid(alpha=0.3)
+    ax_sig.legend(loc="upper right")
+
+    # =========================
+    # Sliders
+    # =========================
+    s_cutoff = Slider(
+        ax_cutoff,
+        "Cutoff freq",
+        cutoff_range[0],
+        cutoff_range[1],
+        valinit=cutoff_freq,
+        valstep=1
+    )
+
+    s_baseline = Slider(
+        ax_baseline,
+        "Activation threshold %",
+        baseline_percentile_range[0],
+        baseline_percentile_range[1],
+        valinit=baseline_percentile,
+        valstep=1
+    )
+
+    s_peak_threshold = Slider(
+        ax_peak_threshold,
+        "Peak threshold %",
+        peak_threshold_percentile_range[0],
+        peak_threshold_percentile_range[1],
+        valinit=peak_threshold_percentile,
+        valstep=1
+    )
+
+    s_duration = Slider(
+        ax_duration,
+        "Min duration",
+        min_duration_range[0],
+        min_duration_range[1],
+        valinit=min_duration,
+        valstep=0.01
+    )
+
+    # =========================
+    # Update all plot elements
+    # =========================
+    def update_plot_elements(print_update=True):
+        nonlocal fill_area
+        nonlocal vertical_lines
+
+        current_xlim = ax_sig.get_xlim()
+        current_ylim = ax_sig.get_ylim()
+
+        calculate_mountains()
+
+        line_emg.set_ydata(state["emg_linear_env"])
+
+        activation_threshold_line.set_ydata([state["activation_threshold"], state["activation_threshold"]])
+        activation_threshold_line.set_label(f"Activation threshold = {state['activation_threshold']:.4f}")
+
+        peak_threshold_line.set_ydata([state["peak_threshold"], state["peak_threshold"]])
+        peak_threshold_line.set_label(f"Peak threshold = {state['peak_threshold']:.4f}")
+
+        fill_area.remove()
+        fill_area = ax_sig.fill_between(
+            time_series,
+            state["emg_linear_env"],
+            state["activation_threshold"],
+            where=state["valid_mask"] & state["above_threshold"],
+            interpolate=True,
+            color="red",
+            alpha=0.35,
+            label=f"Valid area ≥ {state['min_duration']:.2f} s"
+        )
+
+        if show_peak_dots and len(state["valid_peak_times"]) > 0:
+            peak_offsets = np.column_stack((state["valid_peak_times"], state["valid_peak_amps"]))
+        else:
+            peak_offsets = np.empty((0, 2))
+
+        peak_scatter.set_offsets(peak_offsets)
+
+        for ln in vertical_lines:
+            ln.remove()
+
+        vertical_lines = []
+        add_vertical_lines()
+
+        ax_sig.set_title(
+            f"EMG with Thresholds | Cutoff = {state['cutoff_freq']:.1f} Hz | "
+            f"Activation = {state['baseline_percentile']:.0f}% | "
+            f"Peak = {state['peak_threshold_percentile']:.0f}%"
+        )
+
+        ax_sig.set_xlim(current_xlim)
+        ax_sig.set_ylim(current_ylim)
+
+        ax_sig.legend(loc="upper right")
+        fig.canvas.draw_idle()
+
+        if show_prints and print_update:
+            print(
+                f"Cutoff: {state['cutoff_freq']:.1f} Hz | "
+                f"Activation threshold percentile: {state['baseline_percentile']:.0f} | "
+                f"Peak threshold percentile: {state['peak_threshold_percentile']:.0f} | "
+                f"Activation threshold: {state['activation_threshold']:.5f} | "
+                f"Peak threshold: {state['peak_threshold']:.5f} | "
+                f"Min duration: {state['min_duration']:.2f} s | "
+                f"Valid mountains: {len(state['valid_start_times'])} | "
+                f"Manual spans: {len(manual_spans)} | "
+                f"Deleted spans: {len(deleted_spans)}"
+            )
+
+    # =========================
+    # Slider update
+    # =========================
+    def update_from_sliders(val):
+        state["cutoff_freq"] = s_cutoff.val
+        state["baseline_percentile"] = s_baseline.val
+        state["peak_threshold_percentile"] = s_peak_threshold.val
+        state["min_duration"] = s_duration.val
+
+        update_plot_elements(print_update=True)
+
+    s_cutoff.on_changed(update_from_sliders)
+    s_baseline.on_changed(update_from_sliders)
+    s_peak_threshold.on_changed(update_from_sliders)
+    s_duration.on_changed(update_from_sliders)
+
+    # =========================
+    # Span selector
+    # =========================
+    def on_span_select(xmin, xmax):
+        selected_span["xmin"] = min(xmin, xmax)
+        selected_span["xmax"] = max(xmin, xmax)
+
+        if show_prints:
+            print(
+                f"Selected span: {selected_span['xmin']:.3f} to {selected_span['xmax']:.3f} s. "
+                f"Press DELETE to remove mountains, or SPACE to manually add one combined mountain."
+            )
+
+    span_selector = SpanSelector(
+        ax_sig,
+        on_span_select,
+        direction="horizontal",
+        useblit=False,
+        props=dict(alpha=0.25, facecolor="gray"),
+        interactive=True
+    )
+
+    fig._span_selector = span_selector
+
+    # =========================
+    # Keyboard actions
+    # =========================
+    def on_key_press(event):
+        if selected_span["xmin"] is None or selected_span["xmax"] is None:
+            return
+
+        span_start = selected_span["xmin"]
+        span_end = selected_span["xmax"]
+
+        if event.key in ("delete", "backspace"):
+            deleted_count = 0
+
+            for start_time, end_time in zip(state["valid_start_times"], state["valid_end_times"]):
+                if spans_overlap(start_time, end_time, span_start, span_end):
+                    deleted_count += 1
+
+            remove_manual_spans_overlapping_span(span_start, span_end)
+            deleted_spans.append((span_start, span_end))
+
+            update_plot_elements(print_update=False)
+
+            if show_prints:
+                print(f"Deleted {deleted_count} mountain(s) in span {span_start:.3f} to {span_end:.3f} s.")
+
+        elif event.key == " ":
+            remove_deleted_spans_overlapping_span(span_start, span_end)
+            remove_manual_spans_overlapping_span(span_start, span_end)
+            manual_spans.append((span_start, span_end))
+
+            update_plot_elements(print_update=False)
+
+            if show_prints:
+                print(f"Added or updated one combined manual mountain from span {span_start:.3f} to {span_end:.3f} s.")
+
+    fig.canvas.mpl_connect("key_press_event", on_key_press)
+
+    plt.tight_layout()
+    plt.show()
+
+    # =========================
+    # Return final results after graph closes
+    # =========================
+    if len(state["valid_peak_times"]) == 0:
+        return [], [], [], state["cutoff_freq"]
+
+    final_order = np.argsort(np.asarray(state["valid_peak_times"]))
+
+    peak_amplitudes = [state["valid_peak_amps"][i] for i in final_order]
+    peak_times = [state["valid_peak_times"][i] for i in final_order]
+    auc_values = [state["valid_auc_values"][i] for i in final_order]
+
+    return peak_amplitudes, peak_times, auc_values, state["cutoff_freq"]
+
 def interactive_find_peaks_with_sliders(signal, time, distance_init=200, height_init=0.02, distance_range=(1, 1000), height_range=(0.0, 1.0)):
     """
     Interactive peak detection and manual refinement tool.
@@ -239,21 +903,7 @@ def interactive_find_peaks_with_sliders(signal, time, distance_init=200, height_
         np.array(state["peak_amp"])
     )
 
-
-
-
-def interactive_find_peaks_with_sliders_low_pass(
-    signal,
-    time,
-    fs,
-    distance_init=200,
-    height_init=0.02,
-    lowpass_init=12,
-    distance_range=(1, 1000),
-    height_range=(0.0, 1.0),
-    lowpass_range=(1, 50),
-    filter_order=4
-):
+def interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance_init=200, height_init=0.02, lowpass_init=12, distance_range=(1, 1000), height_range=(0.0, 1.0), lowpass_range=(1, 50), filter_order=4):
     """
     Interactive peak detection and manual refinement tool.
 
@@ -512,7 +1162,6 @@ def interactive_find_peaks_with_sliders_low_pass(
     plt.show()
 
     return np.array(state["peak_times"]), np.array(state["peak_amp"]), state["lowpass"]
-
 
 def plot_to_check_find_peaks_algo(signal, signal_time, peak_times, peak_amplitude, downsample=None):
     """
