@@ -33,7 +33,7 @@ data_0_degree = (data_0_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_cha
 data_12_degree = (data_12_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 data_25_degree = (data_25_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 
-trial = 0
+trial = 25
 if trial == 0:
     data = data_0_degree
 elif trial == 12:
@@ -119,6 +119,19 @@ peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_m
     min_duration=0.1,
 
 )
+plt.plot(peak_amplitudes, label='peak_amplitudes')
+plt.legend()
+plt.show()
+
+differences = np.diff(peak_times)
+plt.plot(differences, label='peak_times')
+plt.legend()
+plt.show()
+
+plt.plot(auc_values, label='auc_values')
+plt.legend()
+plt.show()
+
 
 # Find peaks for ECG
 # print("Peaks ECG")
