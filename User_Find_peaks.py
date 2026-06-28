@@ -89,7 +89,19 @@ Acc_z = lib.Butterworth(fs_imu, 20, Acc_z)
 # Calculate the sum of squares for peak finding
 SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 
-
+# Use of Teager_Kaiser
+out = lib.Muscle_activity_based_on_Teager_Kaiser(
+    signal=Gastr_EMG,
+    fs=1000,
+    band_pass=(30, 300),
+    lowpass=12,
+    baseline_window=0.2,
+    baseline_percent=20,
+    h=15,
+    min_activity_duration=0.025,
+    muscle_name="Gastrocnemius",
+    plot=True
+)
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
 Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
@@ -109,31 +121,22 @@ Quad_EMG = abs(Quad_EMG)
 # Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
 # Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
 
-peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_mountains(
-    data_series=Gastr_EMG,
-    time_series=Gastr_EMG_time,
-    sampling_freq=fs_emg,
-    cutoff_freq=12,
-    baseline_percentile=60,
-    peak_threshold_percentile=90,
-    min_duration=0.1,
 
-)
-plt.plot(peak_amplitudes, label='peak_amplitudes')
-plt.legend()
-plt.show()
 
-differences = np.diff(peak_times)
-plt.plot(differences, label='peak_times')
-plt.legend()
-plt.show()
-
-plt.plot(auc_values, label='auc_values')
-plt.legend()
-plt.show()
 
 
 # Find peaks for ECG
+
+# peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_mountains(
+#     data_series=Gastr_EMG,
+#     time_series=Gastr_EMG_time,
+#     sampling_freq=fs_emg,
+#     cutoff_freq=12,
+#     baseline_percentile=60,
+#     peak_threshold_percentile=90,
+#     min_duration=0.1,
+#
+# )
 # print("Peaks ECG")
 # peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
 #     ECG,

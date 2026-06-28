@@ -11,7 +11,7 @@ from scipy.signal import butter, filtfilt, sosfiltfilt, iirnotch
 from matplotlib.widgets import Slider, SpanSelector
 from scipy.signal import find_peaks
 from matplotlib.widgets import Slider, TextBox
-
+from matplotlib.collections import LineCollection
 
 def plot_emg_threshold_mountains(data_series, time_series, sampling_freq, cutoff_freq, baseline_percentile=50, peak_threshold_percentile=75, min_duration=0.3, filter_order=4, show_vertical_lines=True, show_peak_dots=True, show_prints=True, cutoff_range=(1, 50), baseline_percentile_range=(1, 99), peak_threshold_percentile_range=(1, 99), min_duration_range=(0.05, 1.0)):
     """
@@ -2035,7 +2035,6 @@ def RMS(original, filtered):
     rms = np.sqrt(np.mean(residual ** 2))
     return rms
 
-
 def dfa(data, scales, order=1, plot=True):
     """Perform Detrended Fluctuation Analysis on data
 
@@ -2187,3 +2186,381 @@ def Ent_Samp(data, m, r):
     Amr = np.sum(Am) / (N - m)
 
     return -np.log(Amr / Bmr)
+
+def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, baseline_window=0.2, baseline_percent=20, h=15, min_activity_duration=0.025, muscle_name="Muscle", plot=False, max_plot_points=6000):
+
+    signal = np.asarray(signal, dtype=float)
+    time = np.arange(len(signal)) / fs
+
+    # -------------------------------------------------
+    # EMG processing
+    # -------------------------------------------------
+    filtered_signal = butter_bandpass_filtfilt(signal, fs, band_pass[0], band_pass[1])
+
+    rectified_signal = np.abs(filtered_signal)
+
+    linear_envelope = Butterworth(fs, lowpass, rectified_signal)
+    linear_envelope = np.maximum(linear_envelope, 0)
+
+    # -------------------------------------------------
+    # TKEO
+    # -------------------------------------------------
+    TKEO_raw = np.zeros_like(filtered_signal)
+
+    TKEO_raw[1:-1] = (
+        filtered_signal[1:-1] ** 2
+        - filtered_signal[:-2] * filtered_signal[2:]
+    )
+
+    TKEO_raw[0] = TKEO_raw[1]
+    TKEO_raw[-1] = TKEO_raw[-2]
+
+    TKEO_abs = np.abs(TKEO_raw)
+
+    TKEO_envelope = Butterworth(fs, lowpass, TKEO_abs)
+    TKEO_envelope = np.maximum(TKEO_envelope, 0)
+
+    # -------------------------------------------------
+    # Baseline from lowest baseline_percent of sorted RMS windows
+    # -------------------------------------------------
+    baseline_samples = int(baseline_window * fs)
+
+    if baseline_samples < 1:
+        raise ValueError("baseline_window is too small.")
+
+    if baseline_samples >= len(TKEO_envelope):
+        raise ValueError("baseline_window is too large for the signal length.")
+
+    squared_signal = TKEO_envelope ** 2
+    kernel = np.ones(baseline_samples) / baseline_samples
+    rms_values = np.sqrt(np.convolve(squared_signal, kernel, mode="valid"))
+
+    sorted_indices = np.argsort(rms_values)
+
+    n_baseline_windows = int(len(rms_values) * baseline_percent / 100)
+    n_baseline_windows = max(n_baseline_windows, 1)
+
+    baseline_window_indices = sorted_indices[:n_baseline_windows]
+
+    baseline_mask = np.zeros(len(TKEO_envelope), dtype=bool)
+
+    for start in baseline_window_indices:
+        baseline_mask[start:start + baseline_samples] = True
+
+    baseline = TKEO_envelope[baseline_mask]
+
+    baseline_mean = np.mean(baseline)
+    baseline_sd = np.std(baseline)
+
+    # -------------------------------------------------
+    # Detect bursts
+    # -------------------------------------------------
+    def detect_bursts(current_h, current_min_activity_duration):
+
+        threshold = baseline_mean + current_h * baseline_sd
+
+        above_threshold = TKEO_envelope > threshold
+
+        padded = np.concatenate(([False], above_threshold, [False]))
+        changes = np.diff(padded.astype(np.int8))
+
+        starts = np.where(changes == 1)[0]
+        ends = np.where(changes == -1)[0]
+
+        min_activity_samples = int(current_min_activity_duration * fs)
+        min_activity_samples = max(min_activity_samples, 1)
+
+        durations_samples = ends - starts
+        valid = durations_samples >= min_activity_samples
+
+        starts = starts[valid]
+        ends = ends[valid]
+
+        return starts, ends, threshold, above_threshold
+
+    # -------------------------------------------------
+    # Create results
+    # -------------------------------------------------
+    def create_results(starts, ends):
+
+        burst_results = []
+
+        onset_times = starts / fs
+        offset_times = ends / fs
+        durations = (ends - starts) / fs
+
+        peak_activities = []
+        peak_times = []
+        auc_values = []
+
+        for burst_number, (start, end) in enumerate(zip(starts, ends), start=1):
+
+            linear_segment = linear_envelope[start:end]
+            time_segment = time[start:end]
+
+            if len(linear_segment) == 0:
+                peak_activity = np.nan
+                peak_time = np.nan
+                auc = np.nan
+            else:
+                peak_index_relative = np.argmax(linear_segment)
+                peak_index_absolute = start + peak_index_relative
+
+                peak_activity = linear_envelope[peak_index_absolute]
+                peak_time = peak_index_absolute / fs
+                auc = np.trapz(linear_segment, time_segment)
+
+            peak_activities.append(peak_activity)
+            peak_times.append(peak_time)
+            auc_values.append(auc)
+
+            burst_results.append({
+                "Burst": burst_number,
+                "Onset_sample": start,
+                "Offset_sample": end,
+                "Onset_time_s": start / fs,
+                "Offset_time_s": end / fs,
+                "Duration_s": (end - start) / fs,
+                "Peak_activity": peak_activity,
+                "Time_at_peak_s": peak_time,
+                "AUC": auc
+            })
+
+        return burst_results, onset_times, offset_times, durations, peak_activities, peak_times, auc_values
+
+    # -------------------------------------------------
+    # Interactive plot
+    # -------------------------------------------------
+    if plot:
+
+        plot_step = max(1, len(signal) // max_plot_points)
+        plot_indices = np.arange(0, len(signal), plot_step)
+
+        time_plot = time[plot_indices]
+        signal_plot = signal[plot_indices]
+        rectified_plot = rectified_signal[plot_indices]
+        linear_plot = linear_envelope[plot_indices]
+        TKEO_plot = TKEO_envelope[plot_indices]
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(16, 9), sharex=True)
+        fig.subplots_adjust(left=0.08, right=0.97, top=0.93, bottom=0.18, hspace=0.25)
+
+        ax1.plot(time_plot, signal_plot, color="gray", alpha=0.45, linewidth=0.8, label="Raw EMG")
+        ax1.plot(time_plot, rectified_plot, color="royalblue", alpha=0.8, linewidth=1.0, label="Band-pass + abs")
+        ax1.plot(time_plot, linear_plot, color="crimson", linewidth=2.0, label="Linear envelope")
+
+        ax2.plot(time_plot, TKEO_plot, color="forestgreen", linewidth=2.0, label="TKEO envelope")
+
+        initial_threshold = baseline_mean + h * baseline_sd
+        threshold_line = ax2.axhline(initial_threshold, color="black", linestyle="--", linewidth=1.4, label="Threshold")
+
+        ax1.set_title(f"{muscle_name} muscle activity detection", fontsize=14, fontweight="bold")
+        ax1.set_ylabel("EMG amplitude")
+        ax2.set_ylabel("TKEO amplitude")
+        ax2.set_xlabel("Time (s)")
+
+        ax1.grid(True, alpha=0.25)
+        ax2.grid(True, alpha=0.25)
+
+        ax1.legend(loc="upper right")
+        ax2.legend(loc="upper right")
+
+        ax1_ymin, ax1_ymax = ax1.get_ylim()
+        ax2_ymin, ax2_ymax = ax2.get_ylim()
+
+        ax1.set_ylim(ax1_ymin, ax1_ymax)
+        ax2.set_ylim(0, max(ax2_ymax, initial_threshold * 1.2))
+
+        vlines_ax1 = LineCollection([], colors="black", linewidths=1.1)
+        vlines_ax2 = LineCollection([], colors="black", linewidths=1.1)
+
+        ax1.add_collection(vlines_ax1)
+        ax2.add_collection(vlines_ax2)
+
+        peak_scatter = ax1.scatter([], [], color="black", s=35, zorder=5)
+
+        fill_ax1 = None
+        fill_ax2 = None
+
+        info_text = ax2.text(
+            0.01,
+            0.98,
+            "",
+            transform=ax2.transAxes,
+            va="top",
+            ha="left",
+            fontsize=10,
+            bbox=dict(boxstyle="round", facecolor="white", alpha=0.9, edgecolor="lightgray")
+        )
+
+        ax_h = plt.axes([0.15, 0.09, 0.70, 0.03])
+        ax_dur = plt.axes([0.15, 0.04, 0.70, 0.03])
+
+        slider_h = Slider(ax=ax_h, label="h", valmin=1, valmax=50, valinit=h, valstep=0.5)
+        slider_dur = Slider(ax=ax_dur, label="Min duration (s)", valmin=0.005, valmax=0.300, valinit=min_activity_duration, valstep=0.005)
+
+        def update_plot():
+
+            nonlocal fill_ax1, fill_ax2
+
+            current_xlim = ax1.get_xlim()
+            current_ylim_ax1 = ax1.get_ylim()
+            current_ylim_ax2 = ax2.get_ylim()
+
+            current_h = slider_h.val
+            current_min_duration = slider_dur.val
+
+            starts, ends, threshold, _ = detect_bursts(current_h, current_min_duration)
+
+            threshold_line.set_ydata([threshold, threshold])
+
+            # -------------------------------------------------
+            # Vertical onset and offset lines
+            # -------------------------------------------------
+            vertical_times = np.empty(len(starts) + len(ends))
+
+            vertical_times[0::2] = starts / fs
+            vertical_times[1::2] = ends / fs
+
+            segments_ax1 = [
+                [(x, current_ylim_ax1[0]), (x, current_ylim_ax1[1])]
+                for x in vertical_times
+            ]
+
+            segments_ax2 = [
+                [(x, current_ylim_ax2[0]), (x, current_ylim_ax2[1])]
+                for x in vertical_times
+            ]
+
+            vlines_ax1.set_segments(segments_ax1)
+            vlines_ax2.set_segments(segments_ax2)
+
+            # -------------------------------------------------
+            # Fill active areas
+            # -------------------------------------------------
+            active_mask = np.zeros(len(TKEO_envelope), dtype=bool)
+
+            for start, end in zip(starts, ends):
+                active_mask[start:end] = True
+
+            active_mask_plot = active_mask[plot_indices]
+
+            linear_fill = np.where(active_mask_plot, linear_plot, np.nan)
+            TKEO_fill = np.where(active_mask_plot, TKEO_plot, np.nan)
+
+            if fill_ax1 is not None:
+                fill_ax1.remove()
+
+            if fill_ax2 is not None:
+                fill_ax2.remove()
+
+            fill_ax1 = ax1.fill_between(
+                time_plot,
+                0,
+                linear_fill,
+                color="red",
+                alpha=0.25
+            )
+
+            fill_ax2 = ax2.fill_between(
+                time_plot,
+                0,
+                TKEO_fill,
+                color="red",
+                alpha=0.25
+            )
+
+            # -------------------------------------------------
+            # Peak points
+            # -------------------------------------------------
+            peak_x = []
+            peak_y = []
+
+            for start, end in zip(starts, ends):
+                if end > start:
+                    peak_index = start + np.argmax(linear_envelope[start:end])
+                    peak_x.append(time[peak_index])
+                    peak_y.append(linear_envelope[peak_index])
+
+            if len(peak_x) > 0:
+                peak_scatter.set_offsets(np.column_stack([peak_x, peak_y]))
+            else:
+                peak_scatter.set_offsets(np.empty((0, 2)))
+
+            info_text.set_text(
+                f"Bursts detected: {len(starts)}\n"
+                f"h: {current_h:.1f}\n"
+                f"Min duration: {current_min_duration:.3f} s\n"
+                f"Threshold: {threshold:.4f}\n"
+                f"Plot step: every {plot_step} samples"
+            )
+
+            # -------------------------------------------------
+            # Restore zoom
+            # -------------------------------------------------
+            ax1.set_xlim(current_xlim)
+            ax2.set_xlim(current_xlim)
+
+            ax1.set_ylim(current_ylim_ax1)
+            ax2.set_ylim(current_ylim_ax2)
+
+            fig.canvas.draw_idle()
+
+        slider_is_active = {"value": False}
+
+        def on_mouse_press(event):
+            if event.inaxes == ax_h or event.inaxes == ax_dur:
+                slider_is_active["value"] = True
+
+        def on_mouse_release(event):
+            if slider_is_active["value"]:
+                update_plot()
+                slider_is_active["value"] = False
+
+        fig.canvas.mpl_connect("button_press_event", on_mouse_press)
+        fig.canvas.mpl_connect("button_release_event", on_mouse_release)
+
+        update_plot()
+        plt.show()
+
+        h = slider_h.val
+        min_activity_duration = slider_dur.val
+
+    # -------------------------------------------------
+    # Final results
+    # -------------------------------------------------
+    starts, ends, threshold, above_threshold = detect_bursts(h, min_activity_duration)
+
+    burst_results, onset_times, offset_times, durations, peak_activities, peak_times, auc_values = create_results(starts, ends)
+
+    output = {
+        "raw_signal": signal,
+        "filtered_signal": filtered_signal,
+        "rectified_signal": rectified_signal,
+        "linear_envelope": linear_envelope,
+        "TKEO_raw": TKEO_raw,
+        "TKEO_abs": TKEO_abs,
+        "TKEO_envelope": TKEO_envelope,
+        "baseline": baseline,
+        "baseline_mean": baseline_mean,
+        "baseline_sd": baseline_sd,
+        "baseline_mask": baseline_mask,
+        "rms_values": rms_values,
+        "baseline_window_indices": baseline_window_indices,
+        "threshold": threshold,
+        "h": h,
+        "min_activity_duration": min_activity_duration,
+        "starts": starts,
+        "ends": ends,
+        "onset_times": onset_times,
+        "offset_times": offset_times,
+        "durations": durations,
+        "peak_activities": peak_activities,
+        "peak_times": peak_times,
+        "auc_values": auc_values,
+        "burst_results": burst_results,
+        "count_bursts": len(starts),
+        "above_threshold": above_threshold
+    }
+
+    return output
