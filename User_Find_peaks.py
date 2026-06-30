@@ -92,15 +92,15 @@ SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 # Use of Teager_Kaiser
 out = lib.Muscle_activity_based_on_Teager_Kaiser(
     signal=Gastr_EMG,
-    fs=1000,
+    fs=fs_emg,
     band_pass=(30, 300),
-    lowpass=12,
+    lowpass=20,
     baseline_window=0.2,
     baseline_percent=20,
     h=15,
-    min_activity_duration=0.025,
-    muscle_name="Gastrocnemius",
-    plot=True
+    min_activation_duration=0.025,
+    plot=True,
+    step_for_plot=1
 )
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
