@@ -12,6 +12,7 @@ from matplotlib.widgets import Slider, SpanSelector
 from scipy.signal import find_peaks
 from matplotlib.widgets import Slider, TextBox
 from matplotlib.collections import LineCollection
+import pandas as pd
 
 def plot_emg_threshold_mountains(data_series, time_series, sampling_freq, cutoff_freq, baseline_percentile=50, peak_threshold_percentile=75, min_duration=0.3, filter_order=4, show_vertical_lines=True, show_peak_dots=True, show_prints=True, cutoff_range=(1, 50), baseline_percentile_range=(1, 99), peak_threshold_percentile_range=(1, 99), min_duration_range=(0.05, 1.0)):
     """
@@ -2187,6 +2188,99 @@ def Ent_Samp(data, m, r):
 
     return -np.log(Amr / Bmr)
 
+def Residual_analysis(var_prox, var_dist, pig, trial_name, plot=False):
+    pd.set_option('display.max_rows', None)
+    pd.set_option('display.max_columns', None)
+    pd.set_option('display.width', None)
+    pd.set_option('display.max_colwidth', None)
+
+    fp, ap = FFT(var_prox, 1000)
+    fd, ad = FFT(var_dist, 1000)
+
+    cutoff_range = np.arange(10, 50)
+    rms_prox = []
+    rms_dist = []
+
+    for cf in cutoff_range:
+        var_prox_filtered = Butterworth(1000, cf, var_prox)
+        var_dist_filtered = Butterworth(1000, cf, var_dist)
+
+        rms_prox.append(np.sqrt(np.mean((var_prox - var_prox_filtered) ** 2)))
+        rms_dist.append(np.sqrt(np.mean((var_dist - var_dist_filtered) ** 2)))
+
+    rms_prox = np.array(rms_prox)
+    rms_dist = np.array(rms_dist)
+
+    fit_mask = (cutoff_range >= 35) & (cutoff_range <= 49)
+    coef_prox = np.polyfit(cutoff_range[fit_mask], rms_prox[fit_mask], 1)
+    coef_dist = np.polyfit(cutoff_range[fit_mask], rms_dist[fit_mask], 1)
+
+    line_prox = np.polyval(coef_prox, cutoff_range)
+    line_dist = np.polyval(coef_dist, cutoff_range)
+
+    for i in range(len(rms_prox)):
+        if rms_prox[i] < line_prox[0]:
+            Fc_prox = cutoff_range[i]
+            break
+    for i in range(len(rms_prox)):
+        if rms_dist[i] < line_dist[0]:
+            Fc_dist = cutoff_range[i]
+            break
+
+    if plot:
+        fig, axs = plt.subplots(2, 4, figsize=(14, 8))
+
+        plot_title = f"{pig}_{trial_name}"
+
+        plt.suptitle(plot_title)
+
+        axs[0, 0].plot(var_prox)
+        axs[1, 0].plot(var_dist)
+        axs[0, 0].set_ylabel("Proximal pressure")
+        axs[1, 0].set_ylabel("Distal pressure")
+
+        axs[0, 1].plot(fp, ap)
+        axs[1, 1].plot(fd, ad)
+        axs[0, 1].set_xlim([0, 15])
+        axs[1, 1].set_xlim([0, 15])
+        axs[0, 2].axhline(y=line_prox[0], color='k', ls='--')
+        axs[1, 2].axhline(y=line_dist[0], color='k', ls='--')
+        axs[0, 2].axvline(x=Fc_prox, color='k', ls=':', label=f'Fc: {Fc_prox} Hz')
+        axs[1, 2].axvline(x=Fc_dist, color='k', ls=':', label=f'Fc: {Fc_dist} Hz')
+
+        # Proximal residuals + fit line
+        axs[0, 2].plot(cutoff_range, rms_prox, marker='o', label='Residuals')
+        axs[0, 2].plot(cutoff_range, line_prox, linestyle='--', linewidth=2,
+                       label='Linear fit (35–50 Hz)')
+        axs[0, 2].axvspan(35, 50, alpha=0.08)
+        axs[0, 2].set_title('Proximal Residual Analysis')
+        axs[0, 2].set_xlabel('Cutoff Frequency (Hz)')
+        axs[0, 2].set_ylabel('RMS Residual')
+        axs[0, 2].grid(True, alpha=0.3)
+        axs[0, 2].legend(fontsize=8)
+        axs[1, 2].plot(cutoff_range, rms_dist, marker='o', label='Residuals')
+        axs[1, 2].plot(cutoff_range, line_dist, linestyle='--', linewidth=2,
+                       label='Linear fit (35–50 Hz)')
+        axs[1, 2].axvspan(35, 50, alpha=0.08)
+        axs[1, 2].set_title('Distal Residual Analysis')
+        axs[1, 2].set_xlabel('Cutoff Frequency (Hz)')
+        axs[1, 2].set_ylabel('RMS Residual')
+        axs[1, 2].grid(True, alpha=0.3)
+        axs[1, 2].legend(fontsize=8)
+        axs[0, 3].set_title('Filtered')
+        var_prox_filtered = lib.Butterworth(1000, Fc_prox, var_prox)
+        var_dist_filtered = lib.Butterworth(1000, Fc_dist, var_dist)
+        axs[0, 3].plot(var_prox_filtered)
+        axs[1, 3].plot(var_dist_filtered)
+        plt.tight_layout()
+        export_path = r'C:\Users\NONAN\Desktop\Vasilis Mylonas\Pulse Pressure\DATA\DVs\RQA\AMI_FNN\Full_plots'
+        plt.savefig(rf'{export_path}\{plot_title}_Residual.png')
+        plt.draw()
+        plt.pause(2)
+        plt.close()
+
+    return Fc_prox, Fc_dist
+
 def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, baseline_window=0.2, baseline_percent=20, h=15, min_activation_duration=0.025, plot=False, step_for_plot=100):
 
     signal = np.asarray(signal, dtype=float)
@@ -2254,6 +2348,8 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
     )
 
     sorted_indices = np.argsort(rms_values)
+    sorted_rms_values = np.sort(rms_values)
+    rms_percentage_axis = np.linspace(0, 100, len(sorted_rms_values))
 
     # -------------------------------------------------
     # 6. Function to calculate baseline
@@ -2352,12 +2448,20 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
         linear_envelope_plot = linear_envelope[plot_indices]
         TKEO_envelope_plot = TKEO_envelope[plot_indices]
 
-        fig, (ax1, ax2) = plt.subplots(
+        fig = plt.figure(figsize=(18, 8))
+
+        gs = fig.add_gridspec(
             2,
-            1,
-            figsize=(16, 8),
-            sharex=True
+            2,
+            width_ratios=[2, 1],
+            height_ratios=[1, 1],
+            wspace=0.22,
+            hspace=0.28
         )
+
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
+        ax3 = fig.add_subplot(gs[:, 1])
 
         plt.subplots_adjust(bottom=0.24)
 
@@ -2382,6 +2486,21 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             label="Threshold"
         )
 
+        ax3.plot(
+            rms_percentage_axis,
+            sorted_rms_values,
+            linewidth=1.5,
+            label="Sorted RMS"
+        )
+
+        baseline_percent_line = ax3.axvline(
+            baseline_percent,
+            color="black",
+            linestyle="--",
+            linewidth=1.5,
+            label="Baseline %"
+        )
+
         vertical_lines = []
 
         for onset, offset in zip(onset_times, offset_times):
@@ -2403,6 +2522,12 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
         ax2.legend(loc="upper right")
         ax2.grid(True, alpha=0.3)
 
+        ax3.set_title("Sorted RMS values")
+        ax3.set_xlabel("Sorted RMS windows (%)")
+        ax3.set_ylabel("RMS")
+        ax3.legend(loc="upper left")
+        ax3.grid(True, alpha=0.3)
+
         info_text = ax2.text(
             0.01,
             0.95,
@@ -2412,8 +2537,8 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             bbox=dict(facecolor="white", alpha=0.8)
         )
 
-        ax_slider_h = plt.axes([0.15, 0.10, 0.70, 0.03])
-        ax_slider_baseline = plt.axes([0.15, 0.05, 0.70, 0.03])
+        ax_slider_h = plt.axes([0.15, 0.10, 0.55, 0.03])
+        ax_slider_baseline = plt.axes([0.15, 0.05, 0.55, 0.03])
 
         slider_h = Slider(
             ax=ax_slider_h,
@@ -2449,9 +2574,11 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             nonlocal offset_times
             nonlocal activation_durations
 
-            current_xlim = ax1.get_xlim()
+            current_xlim_ax1 = ax1.get_xlim()
             current_ylim_ax1 = ax1.get_ylim()
             current_ylim_ax2 = ax2.get_ylim()
+            current_xlim_ax3 = ax3.get_xlim()
+            current_ylim_ax3 = ax3.get_ylim()
 
             current_h = slider_h.val
             current_baseline_percent = slider_baseline.val
@@ -2472,6 +2599,7 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             ) = detect_activations(current_h, current_baseline_percent)
 
             threshold_line.set_ydata([threshold, threshold])
+            baseline_percent_line.set_xdata([current_baseline_percent, current_baseline_percent])
 
             for line in vertical_lines:
                 line.remove()
@@ -2495,11 +2623,14 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
                 f"Activations = {len(onset_times)}"
             )
 
-            ax1.set_xlim(current_xlim)
-            ax2.set_xlim(current_xlim)
+            ax1.set_xlim(current_xlim_ax1)
+            ax2.set_xlim(current_xlim_ax1)
 
             ax1.set_ylim(current_ylim_ax1)
             ax2.set_ylim(current_ylim_ax2)
+
+            ax3.set_xlim(current_xlim_ax3)
+            ax3.set_ylim(current_ylim_ax3)
 
             fig.canvas.draw_idle()
 
@@ -2536,6 +2667,8 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
         "TKEO_abs": TKEO_abs,
         "TKEO_envelope": TKEO_envelope,
         "rms_values": rms_values,
+        "sorted_rms_values": sorted_rms_values,
+        "rms_percentage_axis": rms_percentage_axis,
         "baseline": baseline,
         "baseline_mean": baseline_mean,
         "baseline_sd": baseline_sd,
