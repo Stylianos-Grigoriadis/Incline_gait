@@ -156,7 +156,7 @@ def plot_emg_threshold_mountains(data_series, time_series, sampling_freq, cutoff
             if segment_end_idx <= start_idx:
                 return np.nan
 
-            auc = np.trapz(
+            auc = np.trapezoid(
                 emg_linear_env[start_idx:segment_end_idx],
                 time_series[start_idx:segment_end_idx]
             )
@@ -2268,8 +2268,8 @@ def Residual_analysis(var_prox, var_dist, pig, trial_name, plot=False):
         axs[1, 2].grid(True, alpha=0.3)
         axs[1, 2].legend(fontsize=8)
         axs[0, 3].set_title('Filtered')
-        var_prox_filtered = lib.Butterworth(1000, Fc_prox, var_prox)
-        var_dist_filtered = lib.Butterworth(1000, Fc_dist, var_dist)
+        var_prox_filtered = Butterworth(1000, Fc_prox, var_prox)
+        var_dist_filtered = Butterworth(1000, Fc_dist, var_dist)
         axs[0, 3].plot(var_prox_filtered)
         axs[1, 3].plot(var_dist_filtered)
         plt.tight_layout()
@@ -2281,7 +2281,7 @@ def Residual_analysis(var_prox, var_dist, pig, trial_name, plot=False):
 
     return Fc_prox, Fc_dist
 
-def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, baseline_window=0.2, baseline_percent=20, h=15, min_activation_duration=0.025, plot=False, step_for_plot=100):
+def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, baseline_window=0.2, baseline_percent=20, h=15, min_activation_duration=0.025, min_activation_duration_range=(0.005, 0.200), plot=False, step_for_plot=100):
 
     signal = np.asarray(signal, dtype=float)
 
@@ -2337,75 +2337,155 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
     # -------------------------------------------------
     # 5. RMS windows from TKEO envelope
     # -------------------------------------------------
-    baseline_samples = int(baseline_window * fs)
+    baseline_samples = int(
+        baseline_window * fs
+    )
 
     squared_signal = TKEO_envelope ** 2
 
-    kernel = np.ones(baseline_samples) / baseline_samples
+    kernel = (
+        np.ones(baseline_samples)
+        / baseline_samples
+    )
 
     rms_values = np.sqrt(
-        np.convolve(squared_signal, kernel, mode="valid")
+        np.convolve(
+            squared_signal,
+            kernel,
+            mode="valid"
+        )
     )
 
     sorted_indices = np.argsort(rms_values)
     sorted_rms_values = np.sort(rms_values)
-    rms_percentage_axis = np.linspace(0, 100, len(sorted_rms_values))
+
+    rms_percentage_axis = np.linspace(
+        0,
+        100,
+        len(sorted_rms_values)
+    )
 
     # -------------------------------------------------
     # 6. Function to calculate baseline
     # -------------------------------------------------
-    def calculate_baseline(current_baseline_percent):
+    def calculate_baseline(
+            current_baseline_percent
+    ):
 
-        n_baseline_windows = int(len(rms_values) * current_baseline_percent / 100)
+        n_baseline_windows = int(
+            len(rms_values)
+            * current_baseline_percent
+            / 100
+        )
 
-        baseline_window_indices = sorted_indices[:n_baseline_windows]
+        baseline_window_indices = (
+            sorted_indices[:n_baseline_windows]
+        )
 
-        baseline_mask = np.zeros(len(TKEO_envelope), dtype=bool)
+        baseline_mask = np.zeros(
+            len(TKEO_envelope),
+            dtype=bool
+        )
 
         for start in baseline_window_indices:
-            baseline_mask[start:start + baseline_samples] = True
 
-        baseline = TKEO_envelope[baseline_mask]
+            baseline_mask[
+                start:start + baseline_samples
+            ] = True
+
+        baseline = TKEO_envelope[
+            baseline_mask
+        ]
 
         baseline_mean = np.mean(baseline)
         baseline_sd = np.std(baseline)
 
-        return baseline, baseline_mean, baseline_sd, baseline_mask, baseline_window_indices
+        return (
+            baseline,
+            baseline_mean,
+            baseline_sd,
+            baseline_mask,
+            baseline_window_indices
+        )
 
     # -------------------------------------------------
     # 7. Function to detect activations
     # -------------------------------------------------
-    def detect_activations(current_h, current_baseline_percent):
+    def detect_activations(
+            current_h,
+            current_baseline_percent,
+            current_min_activation_duration
+    ):
 
-        baseline, baseline_mean, baseline_sd, baseline_mask, baseline_window_indices = calculate_baseline(
+        (
+            baseline,
+            baseline_mean,
+            baseline_sd,
+            baseline_mask,
+            baseline_window_indices
+        ) = calculate_baseline(
             current_baseline_percent
         )
 
-        threshold = baseline_mean + current_h * baseline_sd
-
-        above_threshold = TKEO_envelope > threshold
-
-        above_threshold_padded = np.concatenate(
-            ([False], above_threshold, [False])
+        threshold = (
+            baseline_mean
+            + current_h * baseline_sd
         )
 
-        changes = np.diff(above_threshold_padded.astype(int))
+        above_threshold = (
+            TKEO_envelope > threshold
+        )
 
-        onset_samples = np.where(changes == 1)[0]
-        offset_samples = np.where(changes == -1)[0]
+        above_threshold_padded = (
+            np.concatenate(
+                (
+                    [False],
+                    above_threshold,
+                    [False]
+                )
+            )
+        )
 
-        min_activation_samples = int(min_activation_duration * fs)
+        changes = np.diff(
+            above_threshold_padded.astype(int)
+        )
 
-        activation_durations_samples = offset_samples - onset_samples
+        onset_samples = np.where(
+            changes == 1
+        )[0]
 
-        valid_activations = activation_durations_samples >= min_activation_samples
+        offset_samples = np.where(
+            changes == -1
+        )[0]
 
-        onset_samples = onset_samples[valid_activations]
-        offset_samples = offset_samples[valid_activations]
+        min_activation_samples = int(
+            current_min_activation_duration
+            * fs
+        )
+
+        activation_durations_samples = (
+            offset_samples - onset_samples
+        )
+
+        valid_activations = (
+            activation_durations_samples
+            >= min_activation_samples
+        )
+
+        onset_samples = onset_samples[
+            valid_activations
+        ]
+
+        offset_samples = offset_samples[
+            valid_activations
+        ]
 
         onset_times = onset_samples / fs
         offset_times = offset_samples / fs
-        activation_durations = (offset_samples - onset_samples) / fs
+
+        activation_durations = (
+            offset_samples - onset_samples
+        ) / fs
 
         return (
             baseline,
@@ -2435,44 +2515,83 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
         onset_times,
         offset_times,
         activation_durations
-    ) = detect_activations(h, baseline_percent)
+    ) = detect_activations(
+        h,
+        baseline_percent,
+        min_activation_duration
+    )
 
     # -------------------------------------------------
-    # 8. Plot with h and baseline_percent sliders
+    # 8. Plot with three sliders
     # -------------------------------------------------
     if plot:
 
-        plot_indices = np.arange(0, len(signal), step_for_plot)
+        plot_indices = np.arange(
+            0,
+            len(signal),
+            step_for_plot
+        )
 
-        time_plot = time[plot_indices]
-        linear_envelope_plot = linear_envelope[plot_indices]
-        TKEO_envelope_plot = TKEO_envelope[plot_indices]
+        time_plot = time[
+            plot_indices
+        ]
 
-        fig = plt.figure(figsize=(18, 8))
+        linear_envelope_plot = (
+            linear_envelope[plot_indices]
+        )
+
+        TKEO_envelope_plot = (
+            TKEO_envelope[plot_indices]
+        )
+
+        fig = plt.figure(
+            figsize=(18, 9)
+        )
 
         gs = fig.add_gridspec(
             2,
             2,
             width_ratios=[2, 1],
             height_ratios=[1, 1],
-            wspace=0.22,
-            hspace=0.28
+            wspace=0.20,
+            hspace=0.20
         )
 
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax2 = fig.add_subplot(gs[1, 0], sharex=ax1)
-        ax3 = fig.add_subplot(gs[:, 1])
+        ax1 = fig.add_subplot(
+            gs[0, 0]
+        )
 
-        plt.subplots_adjust(bottom=0.24)
+        ax2 = fig.add_subplot(
+            gs[1, 0],
+            sharex=ax1
+        )
+
+        ax3 = fig.add_subplot(
+            gs[:, 1]
+        )
+
+        # Additional space for the ax2 legend
+        # and the three sliders
+        plt.subplots_adjust(
+            left=0.053,
+            bottom=0.347,
+            right=0.977,
+            top=0.962,
+            wspace=0.200,
+            hspace=0.200
+        )
 
         ax1.plot(
             time_plot,
             linear_envelope_plot,
             linewidth=1.5,
-            label="Band-pass + abs + low-pass EMG"
+            label=(
+                "Band-pass + abs + "
+                "low-pass EMG"
+            )
         )
 
-        ax2.plot(
+        TKEO_line, = ax2.plot(
             time_plot,
             TKEO_envelope_plot,
             linewidth=1.5,
@@ -2493,52 +2612,185 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             label="Sorted RMS"
         )
 
-        baseline_percent_line = ax3.axvline(
-            baseline_percent,
-            color="black",
-            linestyle="--",
-            linewidth=1.5,
-            label="Baseline %"
+        baseline_percent_line = (
+            ax3.axvline(
+                baseline_percent,
+                color="black",
+                linestyle="--",
+                linewidth=1.5,
+                label="Baseline %"
+            )
         )
 
         vertical_lines = []
 
-        for onset, offset in zip(onset_times, offset_times):
+        for onset, offset in zip(
+                onset_times,
+                offset_times
+        ):
 
-            vertical_lines.append(ax1.axvline(onset, color="black", linewidth=1))
-            vertical_lines.append(ax1.axvline(offset, color="black", linewidth=1))
+            vertical_lines.append(
+                ax1.axvline(
+                    onset,
+                    color="black",
+                    linewidth=1
+                )
+            )
 
-            vertical_lines.append(ax2.axvline(onset, color="black", linewidth=1))
-            vertical_lines.append(ax2.axvline(offset, color="black", linewidth=1))
+            vertical_lines.append(
+                ax1.axvline(
+                    offset,
+                    color="black",
+                    linewidth=1
+                )
+            )
 
-        ax1.set_title("EMG envelope and detected activation periods")
-        ax1.set_ylabel("EMG envelope")
-        ax1.legend(loc="upper right")
-        ax1.grid(True, alpha=0.3)
+            vertical_lines.append(
+                ax2.axvline(
+                    onset,
+                    color="black",
+                    linewidth=1
+                )
+            )
 
-        ax2.set_title("TKEO envelope and detected activation periods")
-        ax2.set_xlabel("Time (s)")
-        ax2.set_ylabel("TKEO envelope")
-        ax2.legend(loc="upper right")
-        ax2.grid(True, alpha=0.3)
+            vertical_lines.append(
+                ax2.axvline(
+                    offset,
+                    color="black",
+                    linewidth=1
+                )
+            )
 
-        ax3.set_title("Sorted RMS values")
-        ax3.set_xlabel("Sorted RMS windows (%)")
-        ax3.set_ylabel("RMS")
-        ax3.legend(loc="upper left")
-        ax3.grid(True, alpha=0.3)
-
-        info_text = ax2.text(
-            0.01,
-            0.95,
-            "",
-            transform=ax2.transAxes,
-            va="top",
-            bbox=dict(facecolor="white", alpha=0.8)
+        ax1.set_title(
+            "EMG envelope and detected "
+            "activation periods"
         )
 
-        ax_slider_h = plt.axes([0.15, 0.10, 0.55, 0.03])
-        ax_slider_baseline = plt.axes([0.15, 0.05, 0.55, 0.03])
+        ax1.set_ylabel(
+            "EMG envelope"
+        )
+
+        ax1.legend(
+            loc="upper right"
+        )
+
+        ax1.grid(
+            True,
+            alpha=0.3
+        )
+
+        ax2.set_title(
+            "TKEO envelope and detected "
+            "activation periods"
+        )
+
+        ax2.set_xlabel(
+            "Time (s)"
+        )
+
+        ax2.set_ylabel(
+            "TKEO envelope"
+        )
+
+        ax2.grid(
+            True,
+            alpha=0.3
+        )
+
+        ax3.set_title(
+            "Sorted RMS values"
+        )
+
+        ax3.set_xlabel(
+            "Sorted RMS windows (%)"
+        )
+
+        ax3.set_ylabel(
+            "RMS"
+        )
+
+        ax3.legend(
+            loc="upper left"
+        )
+
+        ax3.grid(
+            True,
+            alpha=0.3
+        )
+
+        # -------------------------------------------------
+        # Function for the information shown in the legend
+        # -------------------------------------------------
+        def create_legend_information(
+                current_h,
+                current_baseline_percent,
+                current_min_activation_duration,
+                current_baseline_mean,
+                current_baseline_sd,
+                current_threshold,
+                current_number_of_activations
+        ):
+
+            return (
+                f"h = {current_h:.1f}    "
+                f"Baseline = "
+                f"{current_baseline_percent:.0f}%    "
+                f"Minimum duration = "
+                f"{current_min_activation_duration:.3f} s\n"
+                f"Baseline mean = "
+                f"{current_baseline_mean:.6f}    "
+                f"Baseline SD = "
+                f"{current_baseline_sd:.6f}    "
+                f"Threshold = "
+                f"{current_threshold:.6f}    "
+                f"Activations = "
+                f"{current_number_of_activations}"
+            )
+
+        legend_information = (
+            create_legend_information(
+                h,
+                baseline_percent,
+                min_activation_duration,
+                baseline_mean,
+                baseline_sd,
+                threshold,
+                len(onset_times)
+            )
+        )
+
+        # TKEO, threshold and analysis information
+        # are displayed in the same legend box
+        ax2_legend = ax2.legend(
+            handles=[
+                TKEO_line,
+                threshold_line
+            ],
+            loc="upper center",
+            bbox_to_anchor=(0.5, -0.28),
+            ncol=2,
+            frameon=True,
+            title=legend_information
+        )
+
+        ax2_legend.get_title().set_fontweight(
+            "normal"
+        )
+
+        # -------------------------------------------------
+        # Slider positions
+        # -------------------------------------------------
+        ax_slider_h = plt.axes(
+            [0.15, 0.14, 0.55, 0.03]
+        )
+
+        ax_slider_baseline = plt.axes(
+            [0.15, 0.09, 0.55, 0.03]
+        )
+
+        ax_slider_duration = plt.axes(
+            [0.15, 0.04, 0.55, 0.03]
+        )
 
         slider_h = Slider(
             ax=ax_slider_h,
@@ -2558,30 +2810,76 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             valstep=1
         )
 
+        slider_min_activation_duration = Slider(
+            ax=ax_slider_duration,
+            label=(
+                "Minimum activation "
+                "duration (s)"
+            ),
+            valmin=(
+                min_activation_duration_range[0]
+            ),
+            valmax=(
+                min_activation_duration_range[1]
+            ),
+            valinit=min_activation_duration,
+            valstep=0.001
+        )
+
+        # -------------------------------------------------
+        # Update plot when a slider changes
+        # -------------------------------------------------
         def update_plot(_):
 
             nonlocal vertical_lines
+
             nonlocal baseline
             nonlocal baseline_mean
             nonlocal baseline_sd
             nonlocal baseline_mask
             nonlocal baseline_window_indices
+
             nonlocal threshold
             nonlocal above_threshold
+
             nonlocal onset_samples
             nonlocal offset_samples
             nonlocal onset_times
             nonlocal offset_times
             nonlocal activation_durations
 
-            current_xlim_ax1 = ax1.get_xlim()
-            current_ylim_ax1 = ax1.get_ylim()
-            current_ylim_ax2 = ax2.get_ylim()
-            current_xlim_ax3 = ax3.get_xlim()
-            current_ylim_ax3 = ax3.get_ylim()
+            # Preserve current zoom
+            current_xlim_ax1 = (
+                ax1.get_xlim()
+            )
 
-            current_h = slider_h.val
-            current_baseline_percent = slider_baseline.val
+            current_ylim_ax1 = (
+                ax1.get_ylim()
+            )
+
+            current_ylim_ax2 = (
+                ax2.get_ylim()
+            )
+
+            current_xlim_ax3 = (
+                ax3.get_xlim()
+            )
+
+            current_ylim_ax3 = (
+                ax3.get_ylim()
+            )
+
+            current_h = (
+                slider_h.val
+            )
+
+            current_baseline_percent = (
+                slider_baseline.val
+            )
+
+            current_min_activation_duration = (
+                slider_min_activation_duration.val
+            )
 
             (
                 baseline,
@@ -2596,53 +2894,142 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
                 onset_times,
                 offset_times,
                 activation_durations
-            ) = detect_activations(current_h, current_baseline_percent)
+            ) = detect_activations(
+                current_h,
+                current_baseline_percent,
+                current_min_activation_duration
+            )
 
-            threshold_line.set_ydata([threshold, threshold])
-            baseline_percent_line.set_xdata([current_baseline_percent, current_baseline_percent])
+            threshold_line.set_ydata(
+                [threshold, threshold]
+            )
+
+            baseline_percent_line.set_xdata(
+                [
+                    current_baseline_percent,
+                    current_baseline_percent
+                ]
+            )
 
             for line in vertical_lines:
                 line.remove()
 
             vertical_lines = []
 
-            for onset, offset in zip(onset_times, offset_times):
+            for onset, offset in zip(
+                    onset_times,
+                    offset_times
+            ):
 
-                vertical_lines.append(ax1.axvline(onset, color="black", linewidth=1))
-                vertical_lines.append(ax1.axvline(offset, color="black", linewidth=1))
+                vertical_lines.append(
+                    ax1.axvline(
+                        onset,
+                        color="black",
+                        linewidth=1
+                    )
+                )
 
-                vertical_lines.append(ax2.axvline(onset, color="black", linewidth=1))
-                vertical_lines.append(ax2.axvline(offset, color="black", linewidth=1))
+                vertical_lines.append(
+                    ax1.axvline(
+                        offset,
+                        color="black",
+                        linewidth=1
+                    )
+                )
 
-            info_text.set_text(
-                f"h = {current_h:.1f}\n"
-                f"Baseline % = {current_baseline_percent:.0f}\n"
-                f"Baseline mean = {baseline_mean:.6f}\n"
-                f"Baseline SD = {baseline_sd:.6f}\n"
-                f"Threshold = {threshold:.6f}\n"
-                f"Activations = {len(onset_times)}"
+                vertical_lines.append(
+                    ax2.axvline(
+                        onset,
+                        color="black",
+                        linewidth=1
+                    )
+                )
+
+                vertical_lines.append(
+                    ax2.axvline(
+                        offset,
+                        color="black",
+                        linewidth=1
+                    )
+                )
+
+            # Update the information inside
+            # the legend below ax2
+            legend_information = (
+                create_legend_information(
+                    current_h,
+                    current_baseline_percent,
+                    current_min_activation_duration,
+                    baseline_mean,
+                    baseline_sd,
+                    threshold,
+                    len(onset_times)
+                )
             )
 
-            ax1.set_xlim(current_xlim_ax1)
-            ax2.set_xlim(current_xlim_ax1)
+            ax2_legend.set_title(
+                legend_information
+            )
 
-            ax1.set_ylim(current_ylim_ax1)
-            ax2.set_ylim(current_ylim_ax2)
+            ax2_legend.get_title().set_fontweight(
+                "normal"
+            )
 
-            ax3.set_xlim(current_xlim_ax3)
-            ax3.set_ylim(current_ylim_ax3)
+            # Restore current zoom
+            ax1.set_xlim(
+                current_xlim_ax1
+            )
+
+            ax2.set_xlim(
+                current_xlim_ax1
+            )
+
+            ax1.set_ylim(
+                current_ylim_ax1
+            )
+
+            ax2.set_ylim(
+                current_ylim_ax2
+            )
+
+            ax3.set_xlim(
+                current_xlim_ax3
+            )
+
+            ax3.set_ylim(
+                current_ylim_ax3
+            )
 
             fig.canvas.draw_idle()
 
-        slider_h.on_changed(update_plot)
-        slider_baseline.on_changed(update_plot)
+        slider_h.on_changed(
+            update_plot
+        )
+
+        slider_baseline.on_changed(
+            update_plot
+        )
+
+        slider_min_activation_duration.on_changed(
+            update_plot
+        )
 
         update_plot(None)
 
         plt.show()
 
+        # -------------------------------------------------
+        # Store final slider values
+        # -------------------------------------------------
         h = slider_h.val
-        baseline_percent = slider_baseline.val
+
+        baseline_percent = (
+            slider_baseline.val
+        )
+
+        min_activation_duration = (
+            slider_min_activation_duration.val
+        )
 
         (
             baseline,
@@ -2657,32 +3044,55 @@ def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, basel
             onset_times,
             offset_times,
             activation_durations
-        ) = detect_activations(h, baseline_percent)
+        ) = detect_activations(
+            h,
+            baseline_percent,
+            min_activation_duration
+        )
 
+    # -------------------------------------------------
+    # 9. Output
+    # -------------------------------------------------
     output = {
         "filtered_signal": filtered_signal,
         "rectified_signal": rectified_signal,
         "linear_envelope": linear_envelope,
+
         "TKEO_energy": TKEO_energy,
         "TKEO_abs": TKEO_abs,
         "TKEO_envelope": TKEO_envelope,
+
         "rms_values": rms_values,
         "sorted_rms_values": sorted_rms_values,
         "rms_percentage_axis": rms_percentage_axis,
+
         "baseline": baseline,
         "baseline_mean": baseline_mean,
         "baseline_sd": baseline_sd,
         "baseline_percent": baseline_percent,
-        "baseline_window_indices": baseline_window_indices,
+        "baseline_window_indices":
+            baseline_window_indices,
         "baseline_mask": baseline_mask,
+
         "threshold": threshold,
         "h": h,
+
+        "min_activation_duration":
+            min_activation_duration,
+
+        "min_activation_duration_range":
+            min_activation_duration_range,
+
         "above_threshold": above_threshold,
+
         "onset_samples": onset_samples,
         "offset_samples": offset_samples,
+
         "onset_times": onset_times,
         "offset_times": offset_times,
-        "activation_durations": activation_durations
+
+        "activation_durations":
+            activation_durations
     }
 
     return output

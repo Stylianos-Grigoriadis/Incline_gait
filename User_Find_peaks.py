@@ -14,7 +14,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 custom_filtering_to_EMG = True
 
-directory = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P1'
+directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P1'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -89,19 +89,6 @@ Acc_z = lib.Butterworth(fs_imu, 20, Acc_z)
 # Calculate the sum of squares for peak finding
 SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 
-# Use of Teager_Kaiser
-out = lib.Muscle_activity_based_on_Teager_Kaiser(
-    signal=Gastr_EMG,
-    fs=fs_emg,
-    band_pass=(30, 300),
-    lowpass=20,
-    baseline_window=0.2,
-    baseline_percent=20,
-    h=15,
-    min_activation_duration=0.025,
-    plot=True,
-    step_for_plot=1
-)
 # Filtering ECG - EMG bandpass
 ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
 Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
@@ -124,19 +111,10 @@ Quad_EMG = abs(Quad_EMG)
 
 
 
-
-# Find peaks for ECG
-
-# peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_mountains(
-#     data_series=Gastr_EMG,
-#     time_series=Gastr_EMG_time,
-#     sampling_freq=fs_emg,
-#     cutoff_freq=12,
-#     baseline_percentile=60,
-#     peak_threshold_percentile=90,
-#     min_duration=0.1,
+############################
+#### Find peaks for ECG ####
+############################
 #
-# )
 # print("Peaks ECG")
 # peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
 #     ECG,
@@ -147,8 +125,37 @@ Quad_EMG = abs(Quad_EMG)
 #     height_range=(0, np.max(ECG))
 # )
 # Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
-#
-# print("Peaks Gastr")
+
+##################################
+#### Find peaks for Gastr_EMG ####
+##################################
+print("Peaks Gastr")
+peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_mountains(
+    data_series=Gastr_EMG,
+    time_series=Gastr_EMG_time,
+    sampling_freq=fs_emg,
+    cutoff_freq=12,
+    baseline_percentile=60,
+    peak_threshold_percentile=90,
+    min_duration=0.1,
+)
+
+# Use of Teager_Kaiser
+out = lib.Muscle_activity_based_on_Teager_Kaiser(
+    signal=Gastr_EMG,
+    fs=fs_emg,
+    band_pass=(30, 300),
+    lowpass=20,
+    baseline_window=0.2,
+    baseline_percent=20,
+    h=15,
+    min_activation_duration=0.025,
+    min_activation_duration_range=(0.005, 0.200),
+    plot=True,
+    step_for_plot=1
+)
+
+# Use Stylian 2310 way
 # peak_times_Gastr, peak_amplitude_Gastr, low_cut_off_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
 #     Gastr_EMG,
 #     Gastr_EMG_time,
@@ -159,30 +166,65 @@ Quad_EMG = abs(Quad_EMG)
 #     height_range=(0, np.max(Gastr_EMG))
 # )
 # Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
-#
-# print("Peaks Quad")
-# peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
-#     Quad_EMG,
-#     Quad_EMG_time,
-#     fs=fs_emg,
-#     distance_init=int(fs_emg/2),
-#     height_init=0.02,
-#     distance_range=(1, fs_emg),
-#     height_range=(0, np.max(Quad_EMG))
-# )
-# Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
-#
-# print("Peaks IMU")
-# peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
-#     SS_acc,
-#     Acc_x_time,
-#     distance_init=int(fs_imu/2),
-#     height_init=5,
-#     distance_range=(1, fs_imu),
-#     height_range=(0, np.max(SS_acc))
-# )
-# Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
-#
+
+#################################
+#### Find peaks for Quad_EMG ####
+#################################
+
+print("Peaks Quad")
+peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+    Quad_EMG,
+    Quad_EMG_time,
+    fs=fs_emg,
+    distance_init=int(fs_emg/2),
+    height_init=0.02,
+    distance_range=(1, fs_emg),
+    height_range=(0, np.max(Quad_EMG))
+)
+Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
+
+# Use of Teager_Kaiser
+out = lib.Muscle_activity_based_on_Teager_Kaiser(
+    signal=Quad_EMG,
+    fs=fs_emg,
+    band_pass=(30, 300),
+    lowpass=20,
+    baseline_window=0.2,
+    baseline_percent=20,
+    h=15,
+    min_activation_duration=0.025,
+    min_activation_duration_range=(0.005, 0.200),
+    plot=True,
+    step_for_plot=1
+)
+
+# Use Stylian 2310 way
+peak_times_Quad, peak_amplitude_Quad, low_cut_off_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
+    Quad_EMG,
+    Quad_EMG_time,
+    fs=fs_emg,
+    distance_init=int(fs_emg/2),
+    height_init=0.02,
+    distance_range=(1, fs_emg),
+    height_range=(0, np.max(Quad_EMG))
+)
+Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
+
+###############################
+#### Find peaks for SS_acc ####
+###############################
+
+print("Peaks IMU")
+peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
+    SS_acc,
+    Acc_x_time,
+    distance_init=int(fs_imu/2),
+    height_init=5,
+    distance_range=(1, fs_imu),
+    height_range=(0, np.max(SS_acc))
+)
+Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
+
 #
 #
 # base_dir = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data'

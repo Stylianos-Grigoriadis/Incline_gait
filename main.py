@@ -5,7 +5,7 @@ import os
 import numpy as np
 from matplotlib.widgets import Slider, Button
 
-directory = r'C:\Users\Stylianos Grigoriadi\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Pilot\Pilot Anestis\twelvehalf_%_incline_2026_01_05_T_14_11_24'
+directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Pilot\Pilot Anestis\twelvehalf_%_incline_2026_01_05_T_14_11_24'
 
 os.chdir(directory)
 Gastr_Med = pd.read_csv(r'KFORCEEMG20014_F0_C1_5E_B5_3E_91.csv', header=None)
@@ -64,14 +64,14 @@ df_ECG_intervals = pd.DataFrame({"Time Intervals": ECG_intervals})
 df_ECG_intervals.to_excel(r'ECG_time_intervals_incl_12.5_deg.xlsx')
 
 # Find peaks for Gastrocnemius Med
-# new_peak_times_Gastr_Med, new_peak_amplitude_Gastr_Med = lib.interactive_find_peaks_with_sliders(
-#     Gastr_Med['EMG Linear Envelope'],
-#     Gastr_Med['Time'],
-#     distance_init=600,
-#     height_init=0.05,
-#     distance_range=(1, 1000),
-#     height_range=(0.001, 1.0)
-# )
+new_peak_times_Gastr_Med, new_peak_amplitude_Gastr_Med = lib.interactive_find_peaks_with_sliders(
+    Gastr_Med['EMG Linear Envelope'],
+    Gastr_Med['Time'],
+    distance_init=600,
+    height_init=0.05,
+    distance_range=(1, 1000),
+    height_range=(0.001, 1.0)
+)
 # Gastr_Med_intervals = np.diff(new_peak_times_Gastr_Med)
 # df_Gastr_Med_intervals = pd.DataFrame({"Time Intervals": Gastr_Med_intervals})
 # df_Gastr_Med_intervals.to_excel(r'Gastr_Med_time_intervals_incl_0_deg.xlsx')
