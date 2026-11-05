@@ -4,6 +4,8 @@ import pandas as pd
 import os
 import numpy as np
 import polars as pl
+import plotly.graph_objects as go
+
 
 """ Sensor 1 --> ECG
     Sensor 2 --> Gastr
@@ -24,9 +26,10 @@ data_12_degree = pl.read_csv("12.csv", skip_rows=8, has_header=False, separator=
 data_25_degree = pl.read_csv("25.csv", skip_rows=8, has_header=False, separator=",")
 
 # Keep only first 12 columns
-data_0_degree = data_0_degree.select(data_0_degree.columns[:12])
-data_12_degree = data_12_degree.select(data_12_degree.columns[:12])
-data_25_degree = data_25_degree.select(data_25_degree.columns[:12])
+data_0_degree = data_0_degree.select(data_0_degree.columns[:18])
+data_12_degree = data_12_degree.select(data_12_degree.columns[:18])
+data_25_degree = data_25_degree.select(data_25_degree.columns[:18])
+print(data_12_degree.columns)
 
 # Make it float
 data_0_degree = (data_0_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
@@ -57,6 +60,46 @@ Acc_y_time = data[:, 8].to_numpy()
 Acc_y = data[:, 9].to_numpy()
 Acc_z_time = data[:,10].to_numpy()
 Acc_z = data[:,11].to_numpy()
+gyro_x_time = data[:, 12].to_numpy()
+gyro_x = data[:, 13].to_numpy()
+gyro_y_time = data[:, 14].to_numpy()
+gyro_y = data[:, 15].to_numpy()
+gyro_z_time = data[:,16].to_numpy()
+gyro_z = data[:,17].to_numpy()
+
+fig = go.Figure()
+
+signals = [
+    (Gastr_EMG_time[:10000], Gastr_EMG[:10000], "Gastr_EMG"),
+    (ECG_time[:10000], ECG[:10000], "ECG"),
+    (Quad_EMG_time[:10000], Quad_EMG[:10000], "Quad_EMG"),
+    (Acc_x_time[:10000], Acc_x[:10000], "Acc_x"),
+    (Acc_y_time[:10000], Acc_y[:10000], "Acc_y"),
+    (Acc_z_time[:10000], Acc_z[:10000], "Acc_z"),
+    (gyro_x_time[:10000], gyro_x[:10000], "gyro_x"),
+    (gyro_y_time[:10000], gyro_y[:10000], "gyro_y"),
+    (gyro_z_time[:10000], gyro_z[:10000], "gyro_z"),
+]
+
+for time, signal, name in signals:
+    fig.add_trace(go.Scattergl(
+        x=time,
+        y=signal,
+        mode="lines",
+        name=name,
+    ))
+
+fig.update_layout(
+    title="Recorded signals",
+    xaxis_title="Time",
+    yaxis_title="Amplitude",
+    template="plotly_white",
+    hovermode="x unified",
+    height=650,
+)
+
+fig.show()
+
 
 # Remove nan from IMU data
 valid_idx = ~np.isnan(Acc_x_time)
@@ -66,25 +109,33 @@ Acc_y_time = Acc_y_time[valid_idx]
 Acc_y = Acc_y[valid_idx]
 Acc_z_time = Acc_z_time[valid_idx]
 Acc_z = Acc_z[valid_idx]
+gyro_x_time = gyro_x[valid_idx]
+gyro_x = gyro_x[valid_idx]
+
+
 
 
 # Spectral analysis
-# lib.FFT_fast(ECG,  fs_emg)
-# lib.FFT_fast(Gastr_EMG,  fs_emg)
-# lib.FFT_fast(Quad_EMG,  fs_emg)
-# lib.FFT_fast(Acc_x,  fs_imu)
-# lib.FFT_fast(Acc_y,  fs_imu)
-# lib.FFT_fast(Acc_z,  fs_imu)
+lib.FFT_fast(ECG,  fs_emg)
+lib.FFT_fast(Gastr_EMG,  fs_emg)
+lib.FFT_fast(Quad_EMG,  fs_emg)
+lib.FFT_fast(Acc_x,  fs_imu)
+lib.FFT_fast(Acc_y,  fs_imu)
+lib.FFT_fast(Acc_z,  fs_imu)
+print("hello")
 
 # Residuals Analysis for IMU
-# lib.residual_analysis(Acc_x, fs_imu, 10, 150)
-# lib.residual_analysis(Acc_y, fs_imu, 10, 150)
-# lib.residual_analysis(Acc_z, fs_imu, 10, 150)
+cutoff_frequencies = np.arange(5,70,1)
+# lib.Residual_analysis(var=Acc_x, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
+# lib.Residual_analysis(var=Acc_y, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
+# lib.Residual_analysis(var=Acc_z, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
+lib.Residual_analysis(var=gyro_x, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
 
 # Filtering IMU low pass
 Acc_x = lib.Butterworth(fs_imu, 20, Acc_x)
 Acc_y = lib.Butterworth(fs_imu, 20, Acc_y)
 Acc_z = lib.Butterworth(fs_imu, 20, Acc_z)
+gyro_x = lib.Butterworth(fs_imu, 20, gyro_x)
 
 # Calculate the sum of squares for peak finding
 SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2

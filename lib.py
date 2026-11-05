@@ -13,6 +13,8 @@ from scipy.signal import find_peaks
 from matplotlib.widgets import Slider, TextBox
 from matplotlib.collections import LineCollection
 import pandas as pd
+import os
+
 
 def plot_emg_threshold_mountains(data_series, time_series, sampling_freq, cutoff_freq, baseline_percentile=50, peak_threshold_percentile=75, min_duration=0.3, filter_order=4, show_vertical_lines=True, show_peak_dots=True, show_prints=True, cutoff_range=(1, 50), baseline_percentile_range=(1, 99), peak_threshold_percentile_range=(1, 99), min_duration_range=(0.05, 1.0)):
     """
@@ -1670,8 +1672,8 @@ def FFT(var,fs):
 
     f = freqs[mask]
     a = pSpec[mask]
-    plt.plot(f,a)
-    plt.show()
+    # plt.plot(f,a)
+    # plt.show()
     print(1)
     sumA=[0]
     for i in range(1,len(a)):
@@ -1905,21 +1907,195 @@ def derivative(array,fs):
 def Pink_noise_generator():
     pass
 
-def residual_analysis(signal, sampling_freq, lowest_freq, highest_freq):
-    residuals_list = []
-    signal = np.array(signal)
-    list_cutoff_freq = np.linspace(lowest_freq, highest_freq, highest_freq - lowest_freq + 1)
-    for i in range(len(list_cutoff_freq)):
-        filtered_signal = Butterworth(sampling_freq, list_cutoff_freq[i], signal)
-        rms = RMS(signal, filtered_signal)
-        residuals_list.append(rms)
+def Residual_analysis(var, cutoff_frequencies, fs, number_of_fit_points=10, plot=True, save=None):
 
-    plt.plot(list_cutoff_freq, residuals_list)
-    plt.scatter(list_cutoff_freq, residuals_list, c='red')
-    plt.xlabel("Cutoff Frequency (Hz)")
-    plt.ylabel("RMS Residual Error")
-    plt.grid(True)
-    plt.show()
+    """
+    Perform residual analysis for one variable.
+
+    Parameters
+    ----------
+    var : array-like
+        Original time series.
+
+    cutoff_frequencies : list or array-like
+        Cutoff frequencies to test.
+
+    fs : float, default=1000
+        Sampling frequency in Hz.
+
+    number_of_fit_points : int, default=10
+        Number of highest cutoff frequencies used for the linear fit.
+
+    plot : bool, default=True
+        If True, display the residual-analysis plot.
+
+    save : tuple or None, default=None
+        Tuple containing (name, directory). For example:
+        ("participant_1.png", r"C:\\Results\\Residual analysis")
+        If None, the plot is not saved.
+
+    Returns
+    -------
+    Fc : float
+        Tested cutoff frequency whose RMS residual is closest to the
+        y-intercept of the fitted line.
+    """
+
+    var = np.asarray(var, dtype=float)
+
+    # Convert the cutoff frequencies to a sorted NumPy array
+    cutoff_frequencies = np.asarray(
+        sorted(cutoff_frequencies),
+        dtype=float
+    )
+
+    # Calculate the RMS residual for every cutoff frequency
+    rms_residual = []
+
+    for fc in cutoff_frequencies:
+
+        var_filtered = Butterworth(
+            fs,
+            fc,
+            var
+        )
+
+        residual = var - var_filtered
+
+        rms_residual.append(
+            np.sqrt(np.mean(residual ** 2))
+        )
+
+    rms_residual = np.asarray(rms_residual)
+
+    # Use the highest cutoff frequencies for the linear fit
+    fit_frequencies = cutoff_frequencies[-number_of_fit_points:]
+    fit_residuals = rms_residual[-number_of_fit_points:]
+
+    # Fit the straight line: y = slope*x + intercept
+    slope, intercept = np.polyfit(
+        fit_frequencies,
+        fit_residuals,
+        1
+    )
+
+    # Evaluate the fitted line across all tested cutoff frequencies
+    fitted_line = np.polyval(
+        [slope, intercept],
+        cutoff_frequencies
+    )
+
+    # Find the tested residual closest to the y-intercept
+    closest_index = np.argmin(
+        np.abs(rms_residual - intercept)
+    )
+
+    Fc = cutoff_frequencies[closest_index]
+
+    # Create the figure when it needs to be displayed or saved
+    if plot or save is not None:
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+        # RMS residual curve
+        ax.plot(
+            cutoff_frequencies,
+            rms_residual,
+            marker='o',
+            color='#2F7FBF',
+            label='RMS residual'
+        )
+
+        # Points used for the linear fit
+        ax.scatter(
+            fit_frequencies,
+            fit_residuals,
+            color='#F28C38',
+            s=55,
+            zorder=3,
+            label=f'Last {number_of_fit_points} cutoff values'
+        )
+
+        # Extrapolated fitted line
+        ax.plot(
+            cutoff_frequencies,
+            fitted_line,
+            linestyle='--',
+            color='#F28C38',
+            linewidth=2,
+            label='Extrapolated linear fit'
+        )
+
+        # Horizontal line at the y-intercept
+        ax.axhline(
+            y=intercept,
+            color='black',
+            linestyle='--',
+            label=f'Intercept = {intercept:.4f}'
+        )
+
+        # Selected cutoff frequency
+        ax.axvline(
+            x=Fc,
+            color='#FF1515',
+            linestyle=':',
+            linewidth=2,
+            label=f'Fc = {Fc:g} Hz'
+        )
+
+        # Mark the selected point
+        ax.scatter(
+            Fc,
+            rms_residual[closest_index],
+            color='#FF1515',
+            s=70,
+            zorder=4
+        )
+
+        ax.set_xlabel('Cutoff frequency (Hz)')
+        ax.set_ylabel('RMS residual')
+        ax.set_title('Residual Analysis')
+        ax.grid(alpha=0.25)
+        ax.legend()
+
+        fig.tight_layout()
+
+        # save must have the form: (name, directory)
+        if save is not None:
+
+            if not isinstance(save, tuple) or len(save) != 2:
+                raise ValueError(
+                    "save must be None or a tuple: (name, directory)."
+                )
+
+            name, save_dir = save
+
+            # Create the directory if it does not already exist
+            os.makedirs(save_dir, exist_ok=True)
+
+            # Add .png if the name does not contain an extension
+            if not os.path.splitext(name)[1]:
+                name += '.png'
+
+            save_path = os.path.join(
+                save_dir,
+                name
+            )
+
+            fig.savefig(
+                save_path,
+                dpi=300,
+                bbox_inches='tight'
+            )
+
+            print(f"Plot saved to: {save_path}")
+
+        if plot:
+            plt.show()
+        else:
+            plt.close(fig)
+
+    return Fc
 
 def correlation_analysis(x, y, method='pearson', plot=False, xlabel='X', ylabel='Y', title=None):
     """
@@ -2187,99 +2363,6 @@ def Ent_Samp(data, m, r):
     Amr = np.sum(Am) / (N - m)
 
     return -np.log(Amr / Bmr)
-
-def Residual_analysis(var_prox, var_dist, pig, trial_name, plot=False):
-    pd.set_option('display.max_rows', None)
-    pd.set_option('display.max_columns', None)
-    pd.set_option('display.width', None)
-    pd.set_option('display.max_colwidth', None)
-
-    fp, ap = FFT(var_prox, 1000)
-    fd, ad = FFT(var_dist, 1000)
-
-    cutoff_range = np.arange(10, 50)
-    rms_prox = []
-    rms_dist = []
-
-    for cf in cutoff_range:
-        var_prox_filtered = Butterworth(1000, cf, var_prox)
-        var_dist_filtered = Butterworth(1000, cf, var_dist)
-
-        rms_prox.append(np.sqrt(np.mean((var_prox - var_prox_filtered) ** 2)))
-        rms_dist.append(np.sqrt(np.mean((var_dist - var_dist_filtered) ** 2)))
-
-    rms_prox = np.array(rms_prox)
-    rms_dist = np.array(rms_dist)
-
-    fit_mask = (cutoff_range >= 35) & (cutoff_range <= 49)
-    coef_prox = np.polyfit(cutoff_range[fit_mask], rms_prox[fit_mask], 1)
-    coef_dist = np.polyfit(cutoff_range[fit_mask], rms_dist[fit_mask], 1)
-
-    line_prox = np.polyval(coef_prox, cutoff_range)
-    line_dist = np.polyval(coef_dist, cutoff_range)
-
-    for i in range(len(rms_prox)):
-        if rms_prox[i] < line_prox[0]:
-            Fc_prox = cutoff_range[i]
-            break
-    for i in range(len(rms_prox)):
-        if rms_dist[i] < line_dist[0]:
-            Fc_dist = cutoff_range[i]
-            break
-
-    if plot:
-        fig, axs = plt.subplots(2, 4, figsize=(14, 8))
-
-        plot_title = f"{pig}_{trial_name}"
-
-        plt.suptitle(plot_title)
-
-        axs[0, 0].plot(var_prox)
-        axs[1, 0].plot(var_dist)
-        axs[0, 0].set_ylabel("Proximal pressure")
-        axs[1, 0].set_ylabel("Distal pressure")
-
-        axs[0, 1].plot(fp, ap)
-        axs[1, 1].plot(fd, ad)
-        axs[0, 1].set_xlim([0, 15])
-        axs[1, 1].set_xlim([0, 15])
-        axs[0, 2].axhline(y=line_prox[0], color='k', ls='--')
-        axs[1, 2].axhline(y=line_dist[0], color='k', ls='--')
-        axs[0, 2].axvline(x=Fc_prox, color='k', ls=':', label=f'Fc: {Fc_prox} Hz')
-        axs[1, 2].axvline(x=Fc_dist, color='k', ls=':', label=f'Fc: {Fc_dist} Hz')
-
-        # Proximal residuals + fit line
-        axs[0, 2].plot(cutoff_range, rms_prox, marker='o', label='Residuals')
-        axs[0, 2].plot(cutoff_range, line_prox, linestyle='--', linewidth=2,
-                       label='Linear fit (35–50 Hz)')
-        axs[0, 2].axvspan(35, 50, alpha=0.08)
-        axs[0, 2].set_title('Proximal Residual Analysis')
-        axs[0, 2].set_xlabel('Cutoff Frequency (Hz)')
-        axs[0, 2].set_ylabel('RMS Residual')
-        axs[0, 2].grid(True, alpha=0.3)
-        axs[0, 2].legend(fontsize=8)
-        axs[1, 2].plot(cutoff_range, rms_dist, marker='o', label='Residuals')
-        axs[1, 2].plot(cutoff_range, line_dist, linestyle='--', linewidth=2,
-                       label='Linear fit (35–50 Hz)')
-        axs[1, 2].axvspan(35, 50, alpha=0.08)
-        axs[1, 2].set_title('Distal Residual Analysis')
-        axs[1, 2].set_xlabel('Cutoff Frequency (Hz)')
-        axs[1, 2].set_ylabel('RMS Residual')
-        axs[1, 2].grid(True, alpha=0.3)
-        axs[1, 2].legend(fontsize=8)
-        axs[0, 3].set_title('Filtered')
-        var_prox_filtered = Butterworth(1000, Fc_prox, var_prox)
-        var_dist_filtered = Butterworth(1000, Fc_dist, var_dist)
-        axs[0, 3].plot(var_prox_filtered)
-        axs[1, 3].plot(var_dist_filtered)
-        plt.tight_layout()
-        export_path = r'C:\Users\NONAN\Desktop\Vasilis Mylonas\Pulse Pressure\DATA\DVs\RQA\AMI_FNN\Full_plots'
-        plt.savefig(rf'{export_path}\{plot_title}_Residual.png')
-        plt.draw()
-        plt.pause(2)
-        plt.close()
-
-    return Fc_prox, Fc_dist
 
 def Muscle_activity_based_on_Teager_Kaiser(signal, fs, band_pass, lowpass, baseline_window=0.2, baseline_percent=20, h=15, min_activation_duration=0.025, min_activation_duration_range=(0.005, 0.200), plot=False, step_for_plot=100):
 
