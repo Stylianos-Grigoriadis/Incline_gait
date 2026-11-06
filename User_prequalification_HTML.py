@@ -535,14 +535,37 @@ def FFT_fast(var, fs):
 
 # Report additions. The functions above and analysis below are copied unchanged.
 
-
+ID_list = [
+    # "P1",
+    # "P2",
+    "P3",
+    # "P4",
+    # "P5",
+    # "P6",
+    # "P7",
+    # "P8",
+    # "P9",
+    # "P10",
+    # "P11",
+    # "P13",
+    # "P14",
+    # "P15",
+    # "P16",
+    # "P17",
+    # "P18",
+    # "P19",
+    # "P20",
+]
 ID = "P1"
+# Reference year for approximate age when Excel AGE contains a birth year.
+age_reference_year = 2026
+participants_excel = base_participants_path = Path(r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Participants' Information1.xlsx")
 # HTML ECG/EMG display only: 1 = every point, 2 = every second point, etc.
 ecg_emg_plot_every_n_points = 10
 open_html_automatically = True  # Set False to save without opening the browser.
 # Choose the folder where the HTML report will be saved.
 save_directory = Path(r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Figures\Qualification reports")
-base_directory = Path(r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data")
+base_directory = Path(r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Prequalified Data")
 fs_emg = 2148.1481
 fs_imu = 370.3704
 
@@ -658,7 +681,7 @@ def display_points(time, values, every_n_points=1):
 def signal_plot(time, values, name, units):
     x, y = display_points(time, values, ecg_emg_plot_every_n_points)
     fig = go.Figure(go.Scatter(x=x, y=y, mode="lines", name=name,
-                               line=dict(width=1, simplify=False, color="#466b91"), connectgaps=False))
+                               line=dict(width=1, simplify=False, color="#bd303b"), connectgaps=False))
     fig.update_layout(template="plotly_white", height=340,
                       margin=dict(l=60, r=20, t=25, b=55),
                       xaxis_title="Time (s)", yaxis_title=units,
@@ -681,7 +704,7 @@ def movement_plot(result):
     ):
         x, y = display_points(result[time_key], result[key])
         fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=key,
-                                  connectgaps=False, line=dict(width=1, simplify=False, color="#466b91")), row=row, col=1)
+                                  connectgaps=False, line=dict(width=1, simplify=False, color="#bd303b")), row=row, col=1)
         fig.update_yaxes(title_text=unit, row=row, col=1)
     fig.update_xaxes(title_text="Time (s)", row=2, col=1)
     fig.update_layout(template="plotly_white", height=540, showlegend=False,
@@ -695,100 +718,398 @@ def movement_plot(result):
                        config={"responsive": True, "displaylogo": False, "doubleClick": "autosize"})
 
 
-def main():
-    directory = base_directory / ID
-    trials = (("0", "0%"), ("12", "12.5%"), ("25", "25%"))
-    sections = {name: [] for name in (
-        "ECG", "EMG quadriceps", "EMG gastrocnemius", "Stride intervals")}
-    durations = []
-    for filename, label in trials:
-        print(f"Processing {ID}: {label}", flush=True)
-        data = pl.read_csv(directory / f"{filename}.csv", skip_rows=8,
-                           has_header=False, separator=",")
-        if data.width < 18:
-            raise ValueError(f"{filename}.csv: expected at least 18 columns.")
-        data = data.select(data.columns[:18])
-        data = (data.with_columns(pl.all().cast(pl.Utf8).str.strip_chars())
-                    .with_columns(pl.all().cast(pl.Float64, strict=False)))
-        duration = duration_minutes(data)
-        durations.append(f'<div><strong>{label}</strong><br>{duration:.3f} minutes</div>')
-        # Keep original diagnostic calculations, without opening their plot windows.
-        existing_figures = set(plt.get_fignums())
+
+def participant_table(durations):
+    # Read only; never save or modify the participant workbook.
+    try:
+        from openpyxl import load_workbook
+    except ImportError as exc:
+        raise ImportError("Install openpyxl in your Python environment to read participant information.") from exc
+    normalize = lambda value: ''.join(str(value or '').lower().split())
+    try:
+        workbook = load_workbook(participants_excel, read_only=True, data_only=True)
+    except PermissionError as exc:
+        raise PermissionError(f"Cannot read {participants_excel}. Close the workbook in Excel and check that it is available locally in OneDrive.") from exc
+    matches = []
+    try:
+        for sheet in workbook.worksheets:
+            headers = None
+            for row in sheet.iter_rows(values_only=True):
+                if headers is None:
+                    candidate = [normalize(v) for v in row]
+                    if 'subjectid' in candidate:
+                        headers = candidate
+                    continue
+                record = dict(zip(headers, row))
+                if str(record.get('subjectid') or '').strip().casefold() == ID.strip().casefold():
+                    matches.append(record)
+    finally:
+        workbook.close()
+    if len(matches) != 1:
+        raise ValueError(f"Expected one participant row for {ID}; found {len(matches)} in {participants_excel}.")
+    record = matches[0]
+    def get(*columns):
+        for column in columns:
+            key = normalize(column)
+            if key in record:
+                return record[key]
+        raise ValueError(f"Missing participant column: {columns[0]}")
+    def number(value):
+        try:
+            return float(str(value).strip().replace(',', '.'))
+        except (ValueError, TypeError):
+            return None
+    def formatted(value, unit=''):
+        if value is None or str(value).strip() == '':
+            return 'Not recorded'
+        numeric = number(value)
+        label = f'{numeric:g}' if numeric is not None else str(value).strip()
+        return label + unit
+    raw_age = get('AGE')
+    age_value = number(raw_age)
+    if age_value is not None and 1900 <= age_value <= age_reference_year:
+        age = f'{age_reference_year - int(age_value)} years'
+    else:
+        age = formatted(raw_age, ' years')
+    rows = [
+        ('Sex', formatted(get('SEX'))),
+        ('Age', age),
+        ('Weight', formatted(get('WEIGHT'), ' kg')),
+        ('Height', formatted(get('HEIGHT'), ' cm')),
+        ('PWS 0%', formatted(get('PWS 0 (km/h)'), ' km/h')),
+        ('PWS 12.5%', formatted(get('PWS 12.5 (km/h)', 'PWS 12 (km/h)'), ' km/h')),
+        ('PWS 25%', formatted(get('PWS 25(km/h)', 'PWS 25 (km/h)'), ' km/h')),
+    ]
+    rows.extend((f'Recorded duration {label}', f'{minutes:.3f} minutes') for label, minutes in durations)
+    cells = ''.join(f'<tr><th scope="row">{html.escape(label)}</th><td>{html.escape(value)}</td></tr>' for label, value in rows)
+    return ('<aside class="participant-info"><h2>Participant information</h2>'
+            f'<p class="participant-id">{html.escape(ID)}</p><table><tbody>{cells}</tbody></table>'
+            + '</aside>')
+
+
+
+def detail_plot(result, time_key, value_key, name, units, rectified_key=None, imu=False):
+    # Report-only display: ECG/EMG use the configured step; IMU uses every point.
+    step = 1 if imu else ecg_emg_plot_every_n_points
+    fig = go.Figure()
+    if rectified_key is not None:
+        x, y = display_points(result[time_key], result[rectified_key], step)
+        fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name="Rectified EMG",
+                                line=dict(color="#a5a5a5", width=1, simplify=False),
+                                connectgaps=False))
+    x, y = display_points(result[time_key], result[value_key], step)
+    fig.add_trace(go.Scatter(x=x, y=y, mode="lines", name=name,
+                            line=dict(color="#bd303b", width=1.3, simplify=False),
+                            connectgaps=False))
+    fig.update_layout(template="plotly_white", height=330,
+                      margin=dict(l=65, r=25, t=35, b=55),
+                      font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#56616e"),
+                      paper_bgcolor="white", plot_bgcolor="white",
+                      xaxis_title="Time (s)", yaxis_title=units,
+                      showlegend=rectified_key is not None,
+                      legend=dict(orientation="h", y=1.12, x=0))
+    fig.update_xaxes(range=[200, 250], autorange=False, gridcolor="#edf0f3")
+    fig.update_yaxes(gridcolor="#edf0f3")
+    return fig.to_html(full_html=False, include_plotlyjs=False,
+                       config={"responsive": True, "displaylogo": False, "doubleClick": "autosize"})
+
+
+def detail_section(title, charts):
+    return '<section><h2>' + title + '</h2><div class="detail-rows">' + ''.join(charts) + '</div></section>'
+
+
+
+def spectral_plot(values, fs, name, units):
+    # Unfiltered input, before any HTML point selection; FFT_fast is unchanged.
+    values = np.asarray(values, dtype=float)
+    if len(values) < 3 or not np.all(np.isfinite(values)):
+        return '<p>Spectrum unavailable: signal is too short or contains non-finite samples.</p>'
+    freqs = fftfreq(len(values), 1 / fs)
+    mask = freqs > 0
+    transformed = fft(values)
+    power = 2 * ((np.abs(transformed) / len(values)) ** 2)
+    frequencies, power = freqs[mask], power[mask]
+    if not np.isfinite(power.sum()) or power.sum() <= 0:
+        return '<p>Spectrum unavailable: no positive-frequency power.</p>'
+    existing_figures = set(plt.get_fignums())
+    try:
         with patch.object(plt, "show"):
-            result = process_trial(data)
-        for number in set(plt.get_fignums()) - existing_figures:
-            plt.close(number)
-        specifications = (
-            ("ECG", "ECG_time", "ECG", "mV"),
-            ("EMG quadriceps", "Quad_EMG_time", "Quad_EMG_linear_envelope", "mV"),
-            ("EMG gastrocnemius", "Gastr_EMG_time", "Gastr_EMG_linear_envelope", "mV"),
-        )
-        for section, time_key, value_key, unit in specifications:
-            chart = signal_plot(result[time_key], result[value_key], section, unit)
-            sections[section].append(f'<article><h3>{label}</h3>{chart}</article>')
-        sections["Stride intervals"].append(
-            f'<article><h3>{label}</h3>{movement_plot(result)}</article>')
-        del data, result
-    body = []
-    for name, columns in sections.items():
-        note = ('<p>Filtered SS_acc and gyro_x. Stride intervals have not been calculated.</p>'
-                if name == "Stride intervals" else "")
-        section_id = name.lower().replace(' ', '-')
-        body.append(f'<section id="{section_id}"><h2>{name}</h2>{note}<div class="grid">'
-                    + ''.join(columns) + '</div></section>')
-    title = html.escape(ID) + " — Data qualification"
-    document = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
-        '<meta name="viewport" content="width=device-width, initial-scale=1">'
-        f'<title>{title}</title><script>' + get_plotlyjs() + '</script>'
-        '<style>'
-        ':root{color-scheme:light;--ink:#28313b;--muted:#6b7480;--accent:#466b91;--border:#e4e8ed}'
-        '*{box-sizing:border-box}html{scroll-behavior:smooth}'
-        'body{margin:0 auto;padding:48px 36px 72px;max-width:1920px;background:#fff;color:var(--ink);'
-        'font-family:Georgia,"Times New Roman",serif;font-size:16px;line-height:1.65}'
-        'h1,h2,h3,.eyebrow,.durations,.report-nav{font-family:"Segoe UI",Arial,sans-serif}'
-        'header{padding-bottom:24px;border-bottom:1px solid var(--border);margin-bottom:30px}'
-        '.eyebrow{font-size:11px;font-weight:650;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin:0 0 10px}'
-        'h1{font-size:34px;font-weight:600;letter-spacing:-1px;line-height:1.2;margin:0 0 12px}'
-        '.subtitle{margin:0;color:var(--muted);font-size:17px}'
-        'h2{font-size:23px;line-height:1.35;font-weight:600;letter-spacing:-.4px;margin:0 0 10px}'
-        'p{max-width:1050px;margin:10px 0 20px;color:var(--muted)}'
-        '.grid,.durations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}'
-        '.durations{margin:22px 0 26px}'
-        '.durations>div{padding:18px 22px;border:1px solid var(--border);border-radius:5px;'
-        'font-size:23px;font-weight:500;letter-spacing:-.4px;background:#fafbfd}'
-        '.durations strong{font-size:12px;font-weight:600;letter-spacing:.7px;color:var(--accent)}'
-        'article{background:#fff;border:1px solid var(--border);border-radius:5px;min-width:0;overflow:hidden;padding:0 8px 8px}'
-        'h3{margin:0 -8px 8px;padding:14px 20px;border-bottom:1px solid var(--border);'
-        'font-size:14px;font-weight:600;text-align:left;color:var(--accent);background:#fcfcfd}'
-        'section{margin-top:44px;padding-top:26px;border-top:1px solid var(--border)}'
-        '.report-nav{display:flex;flex-wrap:wrap;gap:10px 24px;margin:22px 0 0;font-size:13px}'
-        '.report-nav a{color:var(--accent);text-decoration:none}.report-nav a:hover{text-decoration:underline}'
-        '.report-note{font-size:14px;margin-top:22px}'
-        '.modebar{opacity:.65}.modebar:hover{opacity:1}'
-        '@media(max-width:1000px){body{padding:28px 18px}.grid{grid-template-columns:1fr}}'
-        '@media(max-width:550px){.durations{grid-template-columns:1fr}h1{font-size:28px}}'
-        '@media print{body{padding:0}.report-nav,.modebar{display:none}section{break-inside:avoid}}'
-        '</style>'
-        f'</head><body><header><p class="eyebrow">Incline gait study</p><h1>{title}</h1>'
-        '<p class="subtitle">Signal review across three treadmill incline conditions</p>'
-        '<nav class="report-nav" aria-label="Report sections">'
-        '<a href="#ecg">ECG</a><a href="#emg-quadriceps">Quadriceps EMG</a>'
-        '<a href="#emg-gastrocnemius">Gastrocnemius EMG</a>'
-        '<a href="#stride-intervals">Stride intervals</a></nav></header>'
-        '<h2>Recorded trial duration</h2>'
-        '<p>Duration is the longest recorded channel time span in each trial.</p>'
-        '<div class="durations">' + ''.join(durations) + '</div>'
-        '<p class="report-note">ECG is filtered; EMG plots show linear envelopes. ECG and EMG display every '
-        f'{ecg_emg_plot_every_n_points} sample(s). Acceleration and gyroscope plots show every sample. '
-        'All processing uses the complete recordings. This report does not assign '
-        'qualification decisions automatically.</p>'
-        + ''.join(body) + '</body></html>')
-    save_directory.mkdir(parents=True, exist_ok=True)
-    output = save_directory / f"{ID}_prequalification.html"
-    output.write_text(document, encoding="utf-8")
-    print(f"Saved report: {output}")
-    if open_html_automatically:
-        webbrowser.open(output.resolve().as_uri())
+            # Explicit figure prevents adding FFT_fast's plot to an existing figure.
+            plt.figure()
+            thresholds = FFT_fast(values, fs)
+    finally:
+        for figure_number in set(plt.get_fignums()) - existing_figures:
+            plt.close(figure_number)
+    fig = go.Figure(go.Scatter(x=frequencies, y=power, mode="lines", name=name,
+                              line=dict(color="#bd303b", width=1, simplify=False)))
+    for percent, frequency, color, dash, position in zip(
+        (90, 95, 99), thresholds, ("#527b9e", "#b57a25", "#614a88"),
+        ("dash", "dot", "dashdot"), (0.97, 0.86, 0.75),
+    ):
+        fig.add_shape(type="line", x0=float(frequency), x1=float(frequency),
+                      y0=0, y1=1, xref="x", yref="paper",
+                      line=dict(color=color, width=1.5, dash=dash))
+        fig.add_annotation(x=float(frequency), y=position, xref="x", yref="paper",
+                           text=f"{percent}%: {frequency:.3f} Hz", showarrow=False,
+                           xanchor="left", font=dict(color=color, size=12),
+                           bgcolor="rgba(255,255,255,0.9)")
+    fig.update_layout(template="plotly_white", height=350,
+                      margin=dict(l=75, r=35, t=35, b=55), showlegend=False,
+                      font=dict(family="Segoe UI, Arial, sans-serif", size=12, color="#56616e"),
+                      xaxis_title="Frequency (Hz)",
+                      yaxis_title=f"Power ({units})",
+                      paper_bgcolor="white", plot_bgcolor="white")
+    fig.update_xaxes(gridcolor="#edf0f3", range=[0, 100], autorange=False)
+    fig.update_yaxes(gridcolor="#edf0f3", rangemode="tozero")
+    summary = ' · '.join(f'{percent}%: {frequency:.3f} Hz' for percent, frequency in zip((90, 95, 99), thresholds))
+    return (fig.to_html(full_html=False, include_plotlyjs=False,
+                        config={"responsive": True, "displaylogo": False, "doubleClick": "autosize"})
+            + '<p class="report-note">' + summary + '</p>')
+
+
+def spectral_section(charts):
+    return ('<section><h2>Spectral analysis</h2>'
+            '<p>Unfiltered recording (absolute raw EMG; SS_acc from raw acceleration). Markers indicate 90%, 95% and 99% of cumulative '
+            'positive-frequency power, using FFT_fast. Zero frequency is excluded.</p>'
+            '<div class="grid">' + ''.join(charts) + '</div></section>')
+
+
+
+def residual_plot(values, fs):
+    # Use the original function's calculated plot data; do not change its algorithm.
+    values = np.asarray(values, dtype=float)
+    if len(values) < 20 or not np.all(np.isfinite(values)):
+        return '<p>Residual analysis unavailable: signal is too short or contains non-finite samples.</p>'
+    cutoff_frequencies = np.arange(5, 70, 1)
+    existing_figures = set(plt.get_fignums())
+    try:
+        with patch.object(plt, "show"):
+            fc = Residual_analysis(values, cutoff_frequencies, fs,
+                                   number_of_fit_points=10, plot=True, save=None)
+        created = sorted(set(plt.get_fignums()) - existing_figures)
+        ax = plt.figure(created[-1]).axes[0]
+        residual_line, fitted_line, intercept_line = ax.lines[:3]
+        frequency = np.asarray(residual_line.get_xdata())
+        rms = np.asarray(residual_line.get_ydata())
+        intercept = float(intercept_line.get_ydata()[0])
+        fit_points = np.asarray(ax.collections[0].get_offsets())
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(x=frequency, y=rms, mode="lines+markers", name="RMS residual",
+                                line=dict(color="#bd303b", width=1.5), marker=dict(size=4)))
+        fig.add_trace(go.Scatter(x=fit_points[:, 0], y=fit_points[:, 1], mode="markers",
+                                name="Last 10 cutoff values", marker=dict(color="#b57a25", size=6)))
+        fig.add_trace(go.Scatter(x=fitted_line.get_xdata(), y=fitted_line.get_ydata(),
+                                mode="lines", name="Extrapolated linear fit",
+                                line=dict(color="#b57a25", dash="dash")))
+        fig.add_hline(y=intercept, line_color="#59616b", line_dash="dash")
+        fig.add_vline(x=float(fc), line_color="#bd303b", line_dash="dot",
+                      annotation_text=f"Fc = {fc:g} Hz", annotation_position="top right")
+        selected = int(np.argmin(np.abs(frequency - fc)))
+        fig.add_trace(go.Scatter(x=[float(fc)], y=[float(rms[selected])], mode="markers",
+                                name="Selected cutoff", marker=dict(color="#bd303b", size=8)))
+        fig.update_layout(template="plotly_white", height=380,
+                          margin=dict(l=65, r=30, t=40, b=100),
+                          font=dict(family="Segoe UI, Arial, sans-serif", size=11, color="#56616e"),
+                          xaxis_title="Cutoff frequency (Hz)", yaxis_title="RMS residual",
+                          legend=dict(orientation="h", y=-0.25, x=0),
+                          paper_bgcolor="white", plot_bgcolor="white")
+        fig.update_xaxes(gridcolor="#edf0f3")
+        fig.update_yaxes(gridcolor="#edf0f3")
+        return (fig.to_html(full_html=False, include_plotlyjs=False,
+                            config={"responsive": True, "displaylogo": False, "doubleClick": "autosize"})
+                + f'<p class="report-note">Selected cutoff: {fc:g} Hz · Intercept: {intercept:.4g}</p>')
+    finally:
+        for figure_number in set(plt.get_fignums()) - existing_figures:
+            plt.close(figure_number)
+
+
+def residual_section(charts):
+    return ('<section><h2>Residual analysis</h2>'
+            '<p>Applied to unfiltered data: SS_acc from raw acceleration, or raw gyro_x. Tested cutoffs: 5–69 Hz; '
+            'linear fit: highest 10 cutoff values. Results do not change the applied filters.</p>'
+            '<div class="grid">' + ''.join(charts) + '</div></section>')
+
+
+
+def raw_analysis_inputs(data):
+    # Read directly from the CSV columns, before process_trial applies any filters.
+    def column(index):
+        return np.asarray(data[:, index].to_numpy(), dtype=float).copy()
+    imu_rows = np.isfinite(column(6))  # Exclude the padded rows beyond IMU recording.
+    acc_x, acc_y, acc_z = (column(index)[imu_rows] for index in (7, 9, 11))
+    return {
+        "ECG": column(3),
+        "Quadriceps": np.abs(column(5)),
+        "Gastrocnemius": np.abs(column(1)),
+        "SS_acc": acc_x ** 2 + acc_y ** 2 + acc_z ** 2,
+        "Angular velocity": column(13)[imu_rows],
+    }
+
+
+def main():
+    for ID in ID_list:
+
+        directory = base_directory / ID
+        trials = (("0", "0%"), ("12", "12.5%"), ("25", "25%"))
+        sections = {name: [] for name in (
+            "ECG", "EMG quadriceps", "EMG gastrocnemius", "Stride intervals")}
+        durations = []
+        details = {name: [] for name in ("ECG", "Quadriceps", "Gastrocnemius", "SS_acc", "Angular velocity")}
+        spectra = {name: [] for name in details}
+        residuals = {name: [] for name in ("SS_acc", "Angular velocity")}
+        for filename, label in trials:
+            print(f"Processing {ID}: {label}", flush=True)
+            data = pl.read_csv(directory / f"{filename}.csv", skip_rows=8,
+                               has_header=False, separator=",")
+            if data.width < 18:
+                raise ValueError(f"{filename}.csv: expected at least 18 columns.")
+            data = data.select(data.columns[:18])
+            data = (data.with_columns(pl.all().cast(pl.Utf8).str.strip_chars())
+                        .with_columns(pl.all().cast(pl.Float64, strict=False)))
+            raw_inputs = raw_analysis_inputs(data)
+            duration = duration_minutes(data)
+            durations.append((label, duration))
+            # Keep original diagnostic calculations, without opening their plot windows.
+            existing_figures = set(plt.get_fignums())
+            with patch.object(plt, "show"):
+                result = process_trial(data)
+            for number in set(plt.get_fignums()) - existing_figures:
+                plt.close(number)
+            specifications = (
+                ("ECG", "ECG_time", "ECG", "mV"),
+                ("EMG quadriceps", "Quad_EMG_time", "Quad_EMG_linear_envelope", "mV"),
+                ("EMG gastrocnemius", "Gastr_EMG_time", "Gastr_EMG_linear_envelope", "mV"),
+            )
+            for section, time_key, value_key, unit in specifications:
+                chart = signal_plot(result[time_key], result[value_key], section, unit)
+                sections[section].append(f'<article><h3>{label}</h3>{chart}</article>')
+            sections["Stride intervals"].append(
+                f'<article><h3>{label}</h3>{movement_plot(result)}</article>')
+            detail_specs = (
+                ("ECG", "ECG_time", "ECG", "Filtered ECG", "mV", None, False),
+                ("Quadriceps", "Quad_EMG_time", "Quad_EMG_linear_envelope", "Linear envelope", "mV", "Quad_EMG", False),
+                ("Gastrocnemius", "Gastr_EMG_time", "Gastr_EMG_linear_envelope", "Linear envelope", "mV", "Gastr_EMG", False),
+                ("SS_acc", "Acc_x_time", "SS_acc", "SS_acc", "G²", None, True),
+                ("Angular velocity", "gyro_x_time", "gyro_x", "gyro_x", "deg/s", None, True),
+            )
+            for section, time_key, value_key, name, unit, rectified_key, imu in detail_specs:
+                chart = detail_plot(result, time_key, value_key, name, unit, rectified_key, imu)
+                details[section].append(f'<article><h3>{label} incline</h3>{chart}</article>')
+                sampling_rate = fs_imu if imu else fs_emg
+                power_units = "G⁴" if section == "SS_acc" else "(deg/s)²" if imu else "mV²"
+                spectrum = spectral_plot(raw_inputs[section], sampling_rate, section + " — raw" + (" absolute" if section in ("Quadriceps", "Gastrocnemius") else ""), power_units)
+                spectra[section].append(f'<article><h3>{label} incline</h3>{spectrum}</article>')
+                if section in residuals:
+                    residual_chart = residual_plot(raw_inputs[section], fs_imu)
+                    residuals[section].append(f'<article><h3>{label} incline</h3>{residual_chart}</article>')
+            del data, result, raw_inputs
+        participant_html = participant_table(durations)
+        body = []
+        for name, columns in sections.items():
+            note = ('<p>Filtered SS_acc and gyro_x. Stride intervals have not been calculated.</p>'
+                    if name == "Stride intervals" else "")
+            section_id = name.lower().replace(' ', '-')
+            body.append(f'<section id="{section_id}"><h2>{name}</h2>{note}<div class="grid">'
+                        + ''.join(columns) + '</div></section>')
+        title = html.escape(ID) + " — Data qualification"
+        document = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'<title>{title}</title><script>' + get_plotlyjs() + '</script>'
+            '<style>'
+            ':root{color-scheme:light;--ink:#28313b;--muted:#6b7480;--accent:#ad2935;--border:#e4e8ed}'
+            '*{box-sizing:border-box}html{scroll-behavior:smooth}'
+            'body{margin:0 auto;padding:48px 36px 72px;max-width:1920px;background:#fff;color:var(--ink);'
+            'font-family:"Segoe UI",Arial,sans-serif;font-size:15px;line-height:1.55}'
+            'h1,h2,h3,.eyebrow,.durations,.report-nav{font-family:"Segoe UI",Arial,sans-serif}'
+            'header{padding-bottom:24px;border-bottom:1px solid var(--border);margin-bottom:30px}'
+            '.eyebrow{font-size:11px;font-weight:650;letter-spacing:2px;text-transform:uppercase;color:var(--accent);margin:0 0 10px}'
+            'h1{font-size:34px;font-weight:600;letter-spacing:-1px;line-height:1.2;margin:0 0 12px}'
+            '.subtitle{margin:0;color:var(--muted);font-size:17px}'
+            'h2{font-size:23px;line-height:1.35;font-weight:600;letter-spacing:-.4px;margin:0 0 10px}'
+            'p{max-width:1050px;margin:10px 0 20px;color:var(--muted)}'
+            '.grid,.durations{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}'
+            '.durations{margin:22px 0 26px}'
+            '.durations>div{padding:18px 22px;border:1px solid var(--border);border-radius:5px;'
+            'font-size:23px;font-weight:500;letter-spacing:-.4px;background:#fff}'
+            '.durations strong{font-size:12px;font-weight:600;letter-spacing:.7px;color:var(--accent)}'
+            'article{background:#fff;border:1px solid var(--border);border-radius:5px;min-width:0;overflow:hidden;padding:0 8px 8px}'
+            'h3{margin:0 -8px 8px;padding:14px 20px;border-bottom:1px solid var(--border);'
+            'font-size:14px;font-weight:600;text-align:left;color:var(--accent);background:#fff}'
+            'section{margin-top:44px;padding-top:26px;border-top:1px solid var(--border)}'
+            '.report-nav{display:flex;flex-wrap:wrap;gap:10px 24px;margin:22px 0 0;font-size:13px}'
+            '.report-nav a{color:var(--accent);text-decoration:none}.report-nav a:hover{text-decoration:underline}'
+            '.report-note{font-size:14px;margin-top:22px}'
+            '.modebar{opacity:.65}.modebar:hover{opacity:1}'
+            '@media(max-width:1000px){body{padding:28px 18px}.grid{grid-template-columns:1fr}}'
+            '@media(max-width:550px){.durations{grid-template-columns:1fr}h1{font-size:28px}}'
+            '@media print{body{padding:0}.report-nav,.modebar{display:none}section{break-inside:avoid}}'
+            'header{border-bottom:2px solid #2c3036;padding-bottom:22px}'
+            'h1{font-size:30px;letter-spacing:-.6px}h2{font-size:20px}'
+            'section{border-top:0;margin-top:38px;padding-top:0}'
+            'section>h2{border-left:3px solid var(--accent);padding-left:12px;margin-bottom:16px}'
+            'article{border-radius:2px}h3{color:#383e46;font-size:13px;background:#f8f8f8}'
+            '.overview{display:grid;grid-template-columns:340px minmax(0,1fr);gap:36px;align-items:start}'
+            '.participant-info{width:100%;max-width:340px;border:1px solid var(--border);padding:18px 20px;background:#fff}'
+            '.participant-info h2{font-size:17px;margin:0}.participant-id{font-size:12px;margin:3px 0 12px;color:var(--accent)}'
+            '.participant-info table{width:100%;border-collapse:collapse;font-size:13px}'
+            '.participant-info th,.participant-info td{padding:7px 0;border-bottom:1px solid #eceef0;text-align:left}'
+            '.participant-info th{font-weight:500;color:#69717a}.participant-info td{text-align:right;font-weight:600}'
+            '.age-note{font-size:11px;line-height:1.45;margin:12px 0 0}'
+            '.durations{gap:12px}.durations>div{font-size:22px;padding:18px;border-radius:2px}'
+            '@media(max-width:1000px){.overview{grid-template-columns:1fr}}'
+            '.tabs{display:flex;gap:8px;border-bottom:1px solid var(--border);margin:0 0 28px}'
+            '.tab-button{font:600 14px "Segoe UI",Arial,sans-serif;border:0;border-bottom:3px solid transparent;'
+            'background:white;color:#6b7480;padding:12px 22px;cursor:pointer}'
+            '.tab-button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}'
+            '.tab-button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}'
+            '.tab-panel[hidden]{display:none}.detail-rows{display:grid;grid-template-columns:1fr;gap:18px}'
+            '.detail-rows article{width:100%}.participant-info{margin-bottom:24px}'
+            '</style>'  
+            f'</head><body><header><p class="eyebrow">Incline gait study</p><h1>{title}</h1>'
+            '<p class="subtitle">Signal review across three treadmill incline conditions</p>'
+            '</header><div class="tabs" role="tablist" aria-label="Signal views">'
+            '<button id="tab-overall" class="tab-button" role="tab" aria-selected="true" aria-controls="panel-overall">Overall</button>'
+            '<button id="tab-ecg" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-ecg" tabindex="-1">ECG</button>'
+            '<button id="tab-gastr" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-gastr" tabindex="-1">EMG gastrocnemius</button>'
+            '<button id="tab-quad" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-quad" tabindex="-1">EMG quadriceps</button>'
+            '<button id="tab-ss" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-ss" tabindex="-1">IMU SS</button>'
+            '<button id="tab-angular" class="tab-button" role="tab" aria-selected="false" aria-controls="panel-angular" tabindex="-1">IMU angular velocity</button></div>'
+            '<div id="panel-overall" class="tab-panel" role="tabpanel" aria-labelledby="tab-overall">' + participant_html +
+            '<p class="report-note">ECG is filtered; EMG plots show linear envelopes. ECG and EMG display every '
+            f'{ecg_emg_plot_every_n_points} sample(s). Acceleration and gyroscope plots show every sample. '
+            'All processing uses the complete recordings. This report does not assign '
+            'qualification decisions automatically.</p>'
+            + ''.join(body) + '</div>'
+            '<div id="panel-ecg" class="tab-panel" role="tabpanel" aria-labelledby="tab-ecg" hidden>'
+            + detail_section('ECG', details['ECG']) + spectral_section(spectra['ECG']) + '</div>'
+            '<div id="panel-gastr" class="tab-panel" role="tabpanel" aria-labelledby="tab-gastr" hidden>'
+            + detail_section('Gastrocnemius EMG', details['Gastrocnemius']) + spectral_section(spectra['Gastrocnemius']) + '</div>'
+            '<div id="panel-quad" class="tab-panel" role="tabpanel" aria-labelledby="tab-quad" hidden>'
+            + detail_section('Quadriceps EMG', details['Quadriceps']) + spectral_section(spectra['Quadriceps']) + '</div>'
+            '<div id="panel-ss" class="tab-panel" role="tabpanel" aria-labelledby="tab-ss" hidden>'
+            + detail_section('Acceleration sum of squares', details['SS_acc']) + spectral_section(spectra['SS_acc']) + residual_section(residuals['SS_acc']) + '</div>'
+            '<div id="panel-angular" class="tab-panel" role="tabpanel" aria-labelledby="tab-angular" hidden>'
+            + detail_section('Angular velocity — gyro_x', details['Angular velocity']) + spectral_section(spectra['Angular velocity']) + residual_section(residuals['Angular velocity']) + '</div>'
+            '<script>'
+            'const tabs=Array.from(document.querySelectorAll(".tab-button"));'
+            'function activateTab(button){'
+            'tabs.forEach(t=>{const active=t===button;t.setAttribute("aria-selected",String(active));'
+            't.tabIndex=active?0:-1;document.getElementById(t.getAttribute("aria-controls")).hidden=!active;});'
+            'requestAnimationFrame(()=>{document.getElementById(button.getAttribute("aria-controls"))'
+            '.querySelectorAll(".plotly-graph-div").forEach(g=>{if(g._fullLayout)Plotly.Plots.resize(g);});});}'
+            'tabs.forEach((button,index)=>{button.addEventListener("click",()=>activateTab(button));'
+            'button.addEventListener("keydown",e=>{let target;'
+            'if(e.key==="ArrowRight")target=(index+1)%tabs.length;'
+            'if(e.key==="ArrowLeft")target=(index+tabs.length-1)%tabs.length;'
+            'if(e.key==="Home")target=0;if(e.key==="End")target=tabs.length-1;'
+            'if(target!==undefined){e.preventDefault();tabs[target].focus();activateTab(tabs[target]);}});});'
+            '</script></body></html>')
+        save_directory.mkdir(parents=True, exist_ok=True)
+        output = save_directory / f"{ID}_prequalification.html"
+        output.write_text(document, encoding="utf-8")
+        print(f"Saved report: {output}")
+        if open_html_automatically:
+            webbrowser.open(output.resolve().as_uri())
 
 
 if __name__ == "__main__":

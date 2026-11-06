@@ -645,12 +645,12 @@ fig.show()
 
 
 # Spectral analysis
-FFT_fast(ECG,  fs_emg)
-FFT_fast(Gastr_EMG,  fs_emg)
+# FFT_fast(ECG,  fs_emg)
+# FFT_fast(Gastr_EMG,  fs_emg)
 FFT_fast(Quad_EMG,  fs_emg)
-FFT_fast(Acc_x,  fs_imu)
-FFT_fast(Acc_y,  fs_imu)
-FFT_fast(Acc_z,  fs_imu)
+# FFT_fast(Acc_x,  fs_imu)
+# FFT_fast(Acc_y,  fs_imu)
+# FFT_fast(Acc_z,  fs_imu)
 
 # Residuals Analysis for IMU
 cutoff_frequencies = np.arange(5,70,1)
@@ -672,6 +672,7 @@ SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
 ECG = butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
 Gastr_EMG = butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
 Quad_EMG = butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+FFT_fast(Quad_EMG,  fs_emg)
 
 # Filtering ECG notch
 ECG = notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
