@@ -538,7 +538,7 @@ def FFT_fast(var, fs):
 ID_list = [
     # "P1",
     # "P2",
-    "P3",
+    # "P3",
     # "P4",
     # "P5",
     # "P6",
@@ -555,6 +555,8 @@ ID_list = [
     # "P18",
     # "P19",
     # "P20",
+    "P21",
+    "P22",
 ]
 ID = "P1"
 # Reference year for approximate age when Excel AGE contains a birth year.

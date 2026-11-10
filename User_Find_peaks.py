@@ -16,7 +16,7 @@ fs_emg = 2148.1481
 fs_imu = 370.3704
 custom_filtering_to_EMG = True
 
-directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P1'
+directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P5'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -36,268 +36,138 @@ data_0_degree = (data_0_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_cha
 data_12_degree = (data_12_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 data_25_degree = (data_25_degree.with_columns(pl.all().cast(pl.Utf8).str.strip_chars()).with_columns(pl.all().cast(pl.Float64, strict=False)))
 
-trial = 25
-if trial == 0:
-    data = data_0_degree
-elif trial == 12:
-    data = data_12_degree
-elif trial == 25:
-    data = data_25_degree
+# Finish and close each interactive plot to continue to the next analysis.
+all_peak_columns = {}
+for trial, inclination, data in [
+    (0, "0", data_0_degree),
+    (12, "12.5", data_12_degree),
+    (25, "25", data_25_degree),
+]:
+    print(f"\nProcessing {ID}, inclination {inclination} degrees")
+
+    ##################################################
+    ################# DATA ANALYSIS ##################
+    ##################################################
+    Gastr_EMG_time = data[:, 0].to_numpy()
+    Gastr_EMG = data[:, 1].to_numpy()
+    ECG_time = data[:, 2].to_numpy()
+    ECG = data[:, 3].to_numpy()
+    Quad_EMG_time = data[:, 4].to_numpy()
+    Quad_EMG = data[:, 5].to_numpy()
+    Acc_x_time = data[:, 6].to_numpy()
+    Acc_x = data[:, 7].to_numpy()
+    Acc_y_time = data[:, 8].to_numpy()
+    Acc_y = data[:, 9].to_numpy()
+    Acc_z_time = data[:,10].to_numpy()
+    Acc_z = data[:,11].to_numpy()
+    gyro_x_time = data[:, 12].to_numpy()
+    gyro_x = data[:, 13].to_numpy()
+    gyro_y_time = data[:, 14].to_numpy()
+    gyro_y = data[:, 15].to_numpy()
+    gyro_z_time = data[:,16].to_numpy()
+    gyro_z = data[:,17].to_numpy()
+
+    # Remove nan from IMU data
+    valid_idx = ~np.isnan(gyro_x_time)
+    gyro_x_time = gyro_x_time[valid_idx]
+    gyro_x = gyro_x[valid_idx]
+
+    # Filtering IMU low pass
+    gyro_x = lib.Butterworth(fs_imu, 20, gyro_x)
+
+    # Filtering ECG - EMG bandpass
+    ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
+    Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+    Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+
+    # Filtering ECG notch
+    ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
+
+    # Make the EMG time series absolute
+    Gastr_EMG = abs(Gastr_EMG)
+    Quad_EMG = abs(Quad_EMG)
 
 
-##################################################
-################# DATA ANALYSIS ##################
-##################################################
-Gastr_EMG_time = data[:, 0].to_numpy()
-Gastr_EMG = data[:, 1].to_numpy()
-ECG_time = data[:, 2].to_numpy()
-ECG = data[:, 3].to_numpy()
-Quad_EMG_time = data[:, 4].to_numpy()
-Quad_EMG = data[:, 5].to_numpy()
-Acc_x_time = data[:, 6].to_numpy()
-Acc_x = data[:, 7].to_numpy()
-Acc_y_time = data[:, 8].to_numpy()
-Acc_y = data[:, 9].to_numpy()
-Acc_z_time = data[:,10].to_numpy()
-Acc_z = data[:,11].to_numpy()
-gyro_x_time = data[:, 12].to_numpy()
-gyro_x = data[:, 13].to_numpy()
-gyro_y_time = data[:, 14].to_numpy()
-gyro_y = data[:, 15].to_numpy()
-gyro_z_time = data[:,16].to_numpy()
-gyro_z = data[:,17].to_numpy()
-
-fig = go.Figure()
-
-signals = [
-    (Gastr_EMG_time[:10000], Gastr_EMG[:10000], "Gastr_EMG"),
-    (ECG_time[:10000], ECG[:10000], "ECG"),
-    (Quad_EMG_time[:10000], Quad_EMG[:10000], "Quad_EMG"),
-    (Acc_x_time[:10000], Acc_x[:10000], "Acc_x"),
-    (Acc_y_time[:10000], Acc_y[:10000], "Acc_y"),
-    (Acc_z_time[:10000], Acc_z[:10000], "Acc_z"),
-    (gyro_x_time[:10000], gyro_x[:10000], "gyro_x"),
-    (gyro_y_time[:10000], gyro_y[:10000], "gyro_y"),
-    (gyro_z_time[:10000], gyro_z[:10000], "gyro_z"),
-]
-
-for time, signal, name in signals:
-    fig.add_trace(go.Scattergl(
-        x=time,
-        y=signal,
-        mode="lines",
-        name=name,
-    ))
-
-fig.update_layout(
-    title="Recorded signals",
-    xaxis_title="Time",
-    yaxis_title="Amplitude",
-    template="plotly_white",
-    hovermode="x unified",
-    height=650,
-)
-
-fig.show()
-
-
-# Remove nan from IMU data
-valid_idx = ~np.isnan(Acc_x_time)
-Acc_x_time = Acc_x_time[valid_idx]
-Acc_x = Acc_x[valid_idx]
-Acc_y_time = Acc_y_time[valid_idx]
-Acc_y = Acc_y[valid_idx]
-Acc_z_time = Acc_z_time[valid_idx]
-Acc_z = Acc_z[valid_idx]
-gyro_x_time = gyro_x[valid_idx]
-gyro_x = gyro_x[valid_idx]
+    # Linear envelope
+    # Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
+    # Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
 
 
 
 
-# Spectral analysis
-lib.FFT_fast(ECG,  fs_emg)
-lib.FFT_fast(Gastr_EMG,  fs_emg)
-lib.FFT_fast(Quad_EMG,  fs_emg)
-lib.FFT_fast(Acc_x,  fs_imu)
-lib.FFT_fast(Acc_y,  fs_imu)
-lib.FFT_fast(Acc_z,  fs_imu)
-print("hello")
+    ############################
+    #### Find peaks for ECG ####
+    ############################
+    print("Peaks ECG")
+    peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
+        ECG,
+        ECG_time,
+        distance_init=int(fs_emg/2),
+        height_init=0.04,
+        distance_range=(1, fs_emg),
+        height_range=(0, np.max(ECG))
+    )
+    Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
 
-# Residuals Analysis for IMU
-cutoff_frequencies = np.arange(5,70,1)
-# lib.Residual_analysis(var=Acc_x, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
-# lib.Residual_analysis(var=Acc_y, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
-# lib.Residual_analysis(var=Acc_z, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
-lib.Residual_analysis(var=gyro_x, cutoff_frequencies=cutoff_frequencies, fs=fs_imu, number_of_fit_points=10, plot=True, save=None)
+    ##################################
+    #### Find peaks for Gastr_EMG ####
+    ##################################
+    print("Peaks Gastr")
+    peak_times_Gast, peak_amplitude_Gast, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+        Gastr_EMG,
+        Gastr_EMG_time,
+        fs=fs_emg,
+        distance_init=int(fs_emg/2),
+        height_init=0.02,
+        distance_range=(1, fs_emg),
+        height_range=(0, np.max(Gastr_EMG))
+    )
+    Peaks_Gast = pd.DataFrame({"peak_times_Quad": peak_times_Gast, "peak_amplitude_Quad": peak_amplitude_Gast})
 
-# Filtering IMU low pass
-Acc_x = lib.Butterworth(fs_imu, 20, Acc_x)
-Acc_y = lib.Butterworth(fs_imu, 20, Acc_y)
-Acc_z = lib.Butterworth(fs_imu, 20, Acc_z)
-gyro_x = lib.Butterworth(fs_imu, 20, gyro_x)
+    #################################
+    #### Find peaks for Quad_EMG ####
+    #################################
+    print("Peaks Quad")
+    peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+        Quad_EMG,
+        Quad_EMG_time,
+        fs=fs_emg,
+        distance_init=int(fs_emg/2),
+        height_init=0.02,
+        distance_range=(1, fs_emg),
+        height_range=(0, np.max(Quad_EMG))
+    )
+    Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
 
-# Calculate the sum of squares for peak finding
-SS_acc = Acc_x**2 + Acc_y**2 + Acc_z**2
+    ###############################
+    #### Find peaks for SS_acc ####
+    ###############################
+    print("Peaks IMU")
+    peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
+        gyro_x,
+        gyro_x_time,
+        distance_init=int(fs_imu/2),
+        height_init=5,
+        distance_range=(1, fs_imu),
+        height_range=(0, np.max(gyro_x))
+    )
+    Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
 
-# Filtering ECG - EMG bandpass
-ECG = lib.butter_bandpass_filtfilt(ECG, fs_emg, low=0.5, high=250, order=4, plot=False)
-Gastr_EMG = lib.butter_bandpass_filtfilt(Gastr_EMG, fs_emg, low=20, high=450, order=4, plot=False)
-Quad_EMG = lib.butter_bandpass_filtfilt(Quad_EMG, fs_emg, low=20, high=450, order=4, plot=False)
+    # Align by peak number, independently for each signal and condition.
+    for signal_name, amplitudes, times in [
+        ("ECG", peak_amplitude_ECG, peak_times_ECG),
+        ("Gastrocnemius_EMG", peak_amplitude_Gast, peak_times_Gast),
+        ("Quadriceps_EMG", peak_amplitude_Quad, peak_times_Quad),
+        ("IMU", peak_amplitude_IMU, peak_times_IMU),
+    ]:
+        all_peak_columns[f"{signal_name}_Peak_Amplitude_{inclination}_deg"] = pd.Series(amplitudes, dtype=float)
+        all_peak_columns[f"{signal_name}_Peak_Time_{inclination}_deg"] = pd.Series(times, dtype=float)
 
-# Filtering ECG notch
-ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=50.0, bandwidth=2.5, plot=False)
-# ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=148.0, bandwidth=2.5, plot=True)
-# ECG = lib.notch_filter_with_plots(ECG, fs_emg, f_notch=300.0, bandwidth=2.5, plot=True)
+# Series align on their zero-based peak index; shorter series export as blank cells.
+peak_results = pd.DataFrame(all_peak_columns)
+output_directory = os.path.join(os.path.dirname(os.path.dirname(os.path.normpath(directory))), "Peaks Data")
+os.makedirs(output_directory, exist_ok=True)
+output_path = os.path.join(output_directory, f"{ID}_Peaks.xlsx")
+peak_results.to_excel(output_path, index=False, na_rep="", engine="openpyxl")
+print(f"Saved {len(peak_results.columns)} columns to {output_path}")
 
-# Make the EMG time series absolute
-Gastr_EMG = abs(Gastr_EMG)
-Quad_EMG = abs(Quad_EMG)
-
-
-# Linear envelope
-# Gastr_EMG_linear_envelope = lib.emg_linear_envelope(Gastr_EMG, fs_emg, cutoff=12, order=4, plot=False)
-# Quad_EMG_linear_envelope = lib.emg_linear_envelope(Quad_EMG, fs_emg, cutoff=12, order=4, plot=False)
-
-
-
-
-############################
-#### Find peaks for ECG ####
-############################
-#
-# print("Peaks ECG")
-# peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
-#     ECG,
-#     ECG_time,
-#     distance_init=int(fs_emg/2),
-#     height_init=0.04,
-#     distance_range=(1, fs_emg),
-#     height_range=(0, np.max(ECG))
-# )
-# Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
-
-##################################
-#### Find peaks for Gastr_EMG ####
-##################################
-print("Peaks Gastr")
-peak_amplitudes, peak_times, auc_values, cut_off_freq = lib.plot_emg_threshold_mountains(
-    data_series=Gastr_EMG,
-    time_series=Gastr_EMG_time,
-    sampling_freq=fs_emg,
-    cutoff_freq=12,
-    baseline_percentile=60,
-    peak_threshold_percentile=90,
-    min_duration=0.1,
-)
-
-# Use of Teager_Kaiser
-out = lib.Muscle_activity_based_on_Teager_Kaiser(
-    signal=Gastr_EMG,
-    fs=fs_emg,
-    band_pass=(30, 300),
-    lowpass=20,
-    baseline_window=0.2,
-    baseline_percent=20,
-    h=15,
-    min_activation_duration=0.025,
-    min_activation_duration_range=(0.005, 0.200),
-    plot=True,
-    step_for_plot=1
-)
-
-# Use Stylian 2310 way
-# peak_times_Gastr, peak_amplitude_Gastr, low_cut_off_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
-#     Gastr_EMG,
-#     Gastr_EMG_time,
-#     fs=fs_emg,
-#     distance_init=int(fs_emg/2),
-#     height_init=0.02,
-#     distance_range=(1, fs_emg),
-#     height_range=(0, np.max(Gastr_EMG))
-# )
-# Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
-
-#################################
-#### Find peaks for Quad_EMG ####
-#################################
-
-print("Peaks Quad")
-peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
-    Quad_EMG,
-    Quad_EMG_time,
-    fs=fs_emg,
-    distance_init=int(fs_emg/2),
-    height_init=0.02,
-    distance_range=(1, fs_emg),
-    height_range=(0, np.max(Quad_EMG))
-)
-Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
-
-# Use of Teager_Kaiser
-out = lib.Muscle_activity_based_on_Teager_Kaiser(
-    signal=Quad_EMG,
-    fs=fs_emg,
-    band_pass=(30, 300),
-    lowpass=20,
-    baseline_window=0.2,
-    baseline_percent=20,
-    h=15,
-    min_activation_duration=0.025,
-    min_activation_duration_range=(0.005, 0.200),
-    plot=True,
-    step_for_plot=1
-)
-
-# Use Stylian 2310 way
-peak_times_Quad, peak_amplitude_Quad, low_cut_off_Gastr = lib.interactive_find_peaks_with_sliders_low_pass(
-    Quad_EMG,
-    Quad_EMG_time,
-    fs=fs_emg,
-    distance_init=int(fs_emg/2),
-    height_init=0.02,
-    distance_range=(1, fs_emg),
-    height_range=(0, np.max(Quad_EMG))
-)
-Peaks_Gastr = pd.DataFrame({"peak_times_Gastr": peak_times_Gastr, "peak_amplitude_Gastr": peak_amplitude_Gastr})
-
-###############################
-#### Find peaks for SS_acc ####
-###############################
-
-print("Peaks IMU")
-peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
-    SS_acc,
-    Acc_x_time,
-    distance_init=int(fs_imu/2),
-    height_init=5,
-    distance_range=(1, fs_imu),
-    height_range=(0, np.max(SS_acc))
-)
-Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
-
-#
-#
-# base_dir = r'C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Peaks Data'
-# directory_save = os.path.join(base_dir, str(ID), str(trial))
-# print(directory_save)
-# os.chdir(directory_save)
-#
-# if Peaks_ECG is not None and not Peaks_ECG.empty:
-#     Peaks_ECG.to_excel(f"Peaks_ECG_{trial}.xlsx")
-#
-# if Peaks_Gastr is not None and not Peaks_Gastr.empty:
-#     if not custom_filtering_to_EMG:
-#         Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}.xlsx")
-#     else:
-#         Peaks_Gastr.to_excel(f"Peaks_Gastr_{trial}_low_filtered_{low_cut_off_Gastr}.xlsx")
-#
-# if Peaks_Quad is not None and not Peaks_Quad.empty:
-#     if not custom_filtering_to_EMG:
-#         Peaks_Quad.to_excel(f"Peaks_Quad_{trial}.xlsx")
-#     else:
-#         Peaks_Quad.to_excel(f"Peaks_Quad_{trial}_low_filtered_{low_cut_off_Quad}.xlsx")
-#
-# if Peaks_IMU is not None and not Peaks_IMU.empty:
-#     Peaks_IMU.to_excel(f"Peaks_IMU_{trial}.xlsx")
-#
