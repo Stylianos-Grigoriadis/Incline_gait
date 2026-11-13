@@ -15,8 +15,9 @@ import plotly.graph_objects as go
 fs_emg = 2148.1481
 fs_imu = 370.3704
 custom_filtering_to_EMG = True
+reverse_ECG = True
 
-directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P5'
+directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P23'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
@@ -66,6 +67,9 @@ for trial, inclination, data in [
     gyro_y = data[:, 15].to_numpy()
     gyro_z_time = data[:,16].to_numpy()
     gyro_z = data[:,17].to_numpy()
+
+    if reverse_ECG == True:
+        ECG = ECG*-1
 
     # Remove nan from IMU data
     valid_idx = ~np.isnan(gyro_x_time)
