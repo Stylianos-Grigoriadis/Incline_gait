@@ -17,7 +17,7 @@ fs_imu = 370.3704
 custom_filtering_to_EMG = True
 reverse_ECG = True
 
-directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P23'
+directory = r'C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data\Valid Data\P4'
 os.chdir(directory)
 ID = os.path.basename(directory)
 print(ID)
