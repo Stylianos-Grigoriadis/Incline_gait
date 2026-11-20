@@ -102,29 +102,30 @@ for trial, inclination, data in [
     ############################
     #### Find peaks for ECG ####
     ############################
-    print("Peaks ECG")
-    peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
-        ECG,
-        ECG_time,
-        distance_init=int(fs_emg/2),
-        height_init=0.04,
-        distance_range=(1, fs_emg),
-        height_range=(0, np.max(ECG))
-    )
-    Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
+    # print("Peaks ECG")
+    # peak_times_ECG, peak_amplitude_ECG = lib.interactive_find_peaks_with_sliders(
+    #     ECG,
+    #     ECG_time,
+    #     distance_init=int(fs_emg/2),
+    #     height_init=0.04,
+    #     distance_range=(1, fs_emg),
+    #     height_range=(0, np.max(ECG))
+    # )
+    # Peaks_ECG = pd.DataFrame({"peak_times_ECG": peak_times_ECG, "peak_amplitude_ECG": peak_amplitude_ECG})
 
     ##################################
     #### Find peaks for Gastr_EMG ####
     ##################################
     print("Peaks Gastr")
-    peak_times_Gast, peak_amplitude_Gast, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+    peak_times_Gast, peak_amplitude_Gast, low_cut_off_Gast = lib.test_interactive_find_peaks_with_sliders_low_pass(
         Gastr_EMG,
         Gastr_EMG_time,
         fs=fs_emg,
-        distance_init=int(fs_emg/2),
-        height_init=0.02,
-        distance_range=(1, fs_emg),
-        height_range=(0, np.max(Gastr_EMG))
+        distance_init=int(fs_emg) / fs_emg,
+        height_init=None,
+        distance_range=(1 / fs_emg, 1.0),
+        height_range=(0, np.max(Gastr_EMG)),
+        autofill=True
     )
     Peaks_Gast = pd.DataFrame({"peak_times_Quad": peak_times_Gast, "peak_amplitude_Quad": peak_amplitude_Gast})
 
@@ -132,30 +133,31 @@ for trial, inclination, data in [
     #### Find peaks for Quad_EMG ####
     #################################
     print("Peaks Quad")
-    peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.interactive_find_peaks_with_sliders_low_pass(
+    peak_times_Quad, peak_amplitude_Quad, low_cut_off_Quad = lib.test_interactive_find_peaks_with_sliders_low_pass(
         Quad_EMG,
         Quad_EMG_time,
         fs=fs_emg,
-        distance_init=int(fs_emg/2),
-        height_init=0.02,
-        distance_range=(1, fs_emg),
-        height_range=(0, np.max(Quad_EMG))
+        distance_init=int(fs_emg) / fs_emg,
+        height_init=None,
+        distance_range=(1 / fs_emg, 1.0),
+        height_range=(0, np.max(Quad_EMG)),
+        autofill=True
     )
     Peaks_Quad = pd.DataFrame({"peak_times_Quad": peak_times_Quad, "peak_amplitude_Quad": peak_amplitude_Quad})
 
     ###############################
     #### Find peaks for SS_acc ####
     ###############################
-    print("Peaks IMU")
-    peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
-        gyro_x,
-        gyro_x_time,
-        distance_init=int(fs_imu/2),
-        height_init=5,
-        distance_range=(1, fs_imu),
-        height_range=(0, np.max(gyro_x))
-    )
-    Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
+    # print("Peaks IMU")
+    # peak_times_IMU, peak_amplitude_IMU = lib.interactive_find_peaks_with_sliders(
+    #     gyro_x,
+    #     gyro_x_time,
+    #     distance_init=int(fs_imu),
+    #     height_init=5,
+    #     distance_range=(1, fs_imu),
+    #     height_range=(0, np.max(gyro_x))
+    # )
+    # Peaks_IMU = pd.DataFrame({"peak_times_IMU": peak_times_IMU, "peak_amplitude_IMU": peak_amplitude_IMU})
 
     # Align by peak number, independently for each signal and condition.
     for signal_name, amplitudes, times in [
