@@ -1167,7 +1167,32 @@ def interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance_init
 
     return np.array(state["peak_times"]), np.array(state["peak_amp"]), state["lowpass"]
 
-def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance_init=None, height_init=None, lowpass_init=12, distance_range=None, height_range=None, lowpass_range=(1, 50), filter_order=4, *, autofill=False):
+def _find_missing_stride_peak_samples(time, signal, detected_times, stride_boundaries):
+    """Find envelope maxima in empty strides near the predicted peak time."""
+    edges = np.searchsorted(detected_times, stride_boundaries, side="left")
+    previous_peak = detected_times[edges[0] - 1] if edges[0] else None
+    recovered = []
+    for i, (start, end) in enumerate(zip(stride_boundaries[:-1], stride_boundaries[1:])):
+        if edges[i + 1] > edges[i]:
+            previous_peak = detected_times[edges[i + 1] - 1]
+            continue
+        if previous_peak is None or end <= start:
+            continue
+        duration = end - start
+        target = previous_peak + duration
+        left = np.searchsorted(time, max(start, target - 0.2 * duration), side="left")
+        right = min(
+            np.searchsorted(time, target + 0.2 * duration, side="right"),
+            np.searchsorted(time, end, side="left"),
+        )
+        if left < right:
+            sample = left + np.argmax(signal[left:right])
+            recovered.append(sample)
+            previous_peak = time[sample]
+    return recovered
+
+
+def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance_init=None, height_init=None, lowpass_init=12, distance_range=None, height_range=None, lowpass_range=(1, 50), filter_order=4, *, autofill=False, reference_peak_times=None, autofill_empty_strides=False):
     """
     Interactive peak detection and manual refinement tool.
 
@@ -1218,6 +1243,8 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
     With autofill=True, suggested peaks are shown in orange. They are included
     in the returned arrays unless removed manually before closing the window.
     Slider changes recompute suggestions from the new automatically detected peaks.
+    With autofill_empty_strides=True, IMU-guided suggestions replace the
+    regular autofill suggestions.
     """
 
     signal = np.asarray(signal)
@@ -1292,7 +1319,15 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
         state["peak_times"] = time[idx].tolist()
         state["peak_amp"] = state["filtered_signal"][idx].tolist()
         state["suggested_times"] = set()
-        if autofill:
+        if autofill_empty_strides:
+            if reference_peak_times is not None and len(reference_peak_times) >= 2:
+                for sample in _find_missing_stride_peak_samples(
+                    time, state["filtered_signal"], time[idx], reference_peak_times,
+                ):
+                    state["suggested_times"].add(time[sample])
+                    state["peak_times"].append(time[sample])
+                    state["peak_amp"].append(state["filtered_signal"][sample])
+        elif autofill:
             _, suggestions = suggest_peak_times(
                 state["peak_times"], distance_samples / fs
             )
@@ -1302,6 +1337,7 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
                 state["suggested_times"].add(expected_time)
                 state["peak_times"].append(expected_time)
                 state["peak_amp"].append(state["filtered_signal"][sample])
+        if state["suggested_times"]:
             order = np.argsort(state["peak_times"])
             state["peak_times"] = [state["peak_times"][i] for i in order]
             state["peak_amp"] = [state["peak_amp"][i] for i in order]
@@ -1332,7 +1368,21 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
     line_filt, = ax_sig.plot(time, state["filtered_signal"], color="royalblue", lw=1.5, label="Filtered")
     scatter = ax_sig.scatter([], [], color="red", zorder=3, label="Peaks")
 
-    if autofill:
+    empty_stride_markers = None
+    if reference_peak_times is not None and len(reference_peak_times):
+        for axis in (ax_sig, ax_rr):
+            axis.vlines(
+                reference_peak_times, 0, 1, transform=axis.get_xaxis_transform(),
+                colors="teal", linestyles="--", linewidth=1, alpha=0.45,
+                label="IMU reference peaks",
+            )
+        ax_sig.scatter([], [], color="green", label="Peak in a stride with multiple peaks")
+        empty_stride_markers = ax_sig.scatter(
+            [], [], color="green", marker="x", zorder=4,
+            transform=ax_sig.get_xaxis_transform(), label="Stride with no peak",
+        )
+
+    if autofill or autofill_empty_strides:
         ax_sig.scatter([], [], color="darkorange", label="Estimated peak")
     ax_sig.set_ylim(0, np.max(initial_filtered_signal))
     vlines = []
@@ -1370,11 +1420,28 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
 
         line_filt.set_ydata(state["filtered_signal"])
 
+        peak_times = np.asarray(state["peak_times"])
+        flagged = np.zeros(peak_times.size, dtype=bool)
+        stride_summary = ""
+        if empty_stride_markers is not None and len(reference_peak_times) >= 2:
+            boundaries = np.searchsorted(peak_times, reference_peak_times, side="left")
+            counts = np.diff(boundaries)
+            empty = counts == 0
+            multiple = counts > 1
+            for start, stop in zip(boundaries[:-1][multiple], boundaries[1:][multiple]):
+                flagged[start:stop] = True
+            midpoints = (reference_peak_times[:-1] + reference_peak_times[1:]) / 2
+            empty_stride_markers.set_offsets(np.c_[midpoints[empty], np.full(empty.sum(), 0.06)])
+            stride_summary = (
+                f"\nIMU strides with no quad peak: {empty.sum()} | "
+                f"With multiple: {multiple.sum()} ({flagged.sum()} quad peaks)"
+            )
+
         if state["peak_times"]:
             scatter.set_offsets(np.c_[state["peak_times"], state["peak_amp"]])
             scatter.set_color([
-                "darkorange" if t in state["suggested_times"] else "red"
-                for t in state["peak_times"]
+                "green" if is_flagged else "darkorange" if t in state["suggested_times"] else "red"
+                for t, is_flagged in zip(peak_times, flagged)
             ])
         else:
             scatter.set_offsets(np.empty((0, 2)))
@@ -1399,6 +1466,7 @@ def test_interactive_find_peaks_with_sliders_low_pass(signal, time, fs, distance
 
         ax_sig.set_title(
             f"Interactive Peak Detection | Low-pass: {state['lowpass']:.1f} Hz"
+            + stride_summary
         )
 
         ax_sig.set_xlim(xlim)

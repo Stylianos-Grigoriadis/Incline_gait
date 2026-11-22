@@ -7,19 +7,27 @@ from lib import butter_bandpass_filtfilt
 from lib import test_interactive_find_peaks_with_sliders_low_pass
 
 
-ID = "P14"
+ID = "P11"
 data_directory = Path(
-    r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data"
+    r"C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data"
 )
 fs_emg = 2148.1481
 height_init = None  # Use the 90th percentile of the initially filtered signal.
 autofill = True
+autofill_empty_strides = True  # True uses IMU-guided filling in place of regular autofill.
 
 
 def main():
     input_directory = data_directory / "Valid Data" / ID
     trials = [("0", "0.csv"), ("12.5", "12.csv"), ("25", "25.csv")]
     peak_columns = {}
+    imu_workbook = pd.DataFrame()
+    for folder in ("Peak IMU data", "Peak Data per device/Peak IMU"):
+        imu_path = data_directory / folder / f"{ID}_Peaks.xlsx"
+        if imu_path.is_file():
+            imu_workbook = pd.read_excel(imu_path)
+            print(f"Using IMU reference from {imu_path}")
+            break
 
     for inclination, filename in trials:
         print(f"Reviewing {ID} quadriceps EMG at {inclination}°. Close the plot to continue.")
@@ -27,6 +35,13 @@ def main():
             input_directory / filename, skiprows=8, header=None, usecols=[4, 5],
         ).apply(pd.to_numeric, errors="coerce").dropna()
         time = quad[4].to_numpy()
+        imu_peaks = pd.to_numeric(
+            imu_workbook.get(f"IMU_Peak_Time_{inclination}_deg", pd.Series(dtype=float)),
+            errors="coerce",
+        )
+        imu_peaks = imu_peaks[imu_peaks.between(time[0], time[-1])].to_numpy()
+        if not imu_peaks.size:
+            print(f"No IMU reference peaks within the quadriceps recording at {inclination}°.")
         signal = quad[5].to_numpy()
         filtered = butter_bandpass_filtfilt(
             signal, fs_emg, low=20, high=450, order=4, plot=False,
@@ -41,6 +56,8 @@ def main():
             distance_range=(1 / fs_emg, 1.0),
             # height_range=(0, np.max(rectified)),
             autofill=autofill,
+            reference_peak_times=imu_peaks,
+            autofill_empty_strides=autofill_empty_strides,
         )
 
         # Series let trials with different peak counts share one worksheet.

@@ -9,10 +9,10 @@ from lib import interactive_find_peaks_with_sliders, notch_filter_with_plots
 
 ID = "P21"
 data_directory = Path(
-    r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data"
+    r"C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait\Data"
 )
 fs_emg = 2148.1481
-reverse_ECG = True
+reverse_ECG = False
 height_init = 0.04
 
 
