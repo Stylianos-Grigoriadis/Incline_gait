@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 
 
 project = Path(
-    r"C:\Users\Stylianos\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait"
+    r"C:\Users\Administrator\OneDrive - Αριστοτέλειο Πανεπιστήμιο Θεσσαλονίκης\My Files\Projects\Inclined gait"
 )
 peak_directory = project / "Data" / "Peak Data per device"
 report_path = (

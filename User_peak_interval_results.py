@@ -17,7 +17,8 @@ from library import analysis
 
 save_HTML = True
 save_results_excel = True
-save_jpeg = True
+save_statistics = True
+save_png = True
 statistical_analysis = True
 
 project = (
@@ -32,14 +33,16 @@ devices = [
     ("IMU", "IMU", "Peak IMU"),
 ]
 report_path = project / "Results" / "Peak_interval_results.html"
-jpeg_directory = project / "Figures" / "Results"
+png_directory = project / "Figures" / "Results"
 excel_path = project / "Results" / "Peak_interval_results.xlsx"
+statistics_path = project / "Results" / "Peak_interval_statistics.xlsx"
 inclinations = ("0", "12.5", "25")
 dcca_ranges = ("Short", "Long")
 dcca_offsets = (-0.25, 0, 0.25)
 pairs = [
     ("IMU", "Gastrocnemius_EMG", "IMU–Gastrocnemius EMG"),
     ("IMU", "Quadriceps_EMG", "IMU–Quadriceps EMG"),
+    ("Gastrocnemius_EMG", "Quadriceps_EMG", "Gastrocnemius EMG–Quadriceps EMG"),
 ]
 signal_names = {
     "ECG": "HR",
@@ -47,6 +50,13 @@ signal_names = {
     "Quadriceps_EMG": "EMG_VL",
     "IMU": "SI",
 }
+
+
+def show_axis_lines(figure):
+    line_style = dict(showline=True, linewidth=1, linecolor="#26364a", mirror=False)
+    figure.update_xaxes(**line_style)
+    figure.update_yaxes(**line_style)
+    return figure
 
 
 def dcca(x, y, scales, plot=False):
@@ -253,7 +263,7 @@ def dcca(x, y, scales, plot=False):
                 dict(label=str(int(s)), method="animate", args=[[str(int(s))],
                      dict(mode="immediate", frame=dict(duration=0, redraw=True),
                           transition=dict(duration=0))]) for s in scales])])
-        fig.show()
+        show_axis_lines(fig).show()
 
     #################################
     ############ OUTPUTS ############
@@ -303,7 +313,7 @@ def plot_by_inclination(results, metric, panels, units, detail_column):
         )
         fig.update_yaxes(title_text=units, row=1, col=col)
     fig.update_layout(template="plotly_white", height=510)
-    return fig
+    return show_axis_lines(fig)
 
 
 def build_report(panels):
@@ -596,32 +606,32 @@ def plot_metric_correlations(results, metric, units, metric_pairs=None):
     fig.update_layout(template="plotly_white", showlegend=False,
                       height=380 if len(metric_pairs) == 1 else 1760,
                       margin=dict(t=55, b=55, l=95, r=25))
-    return fig
+    return show_axis_lines(fig)
 
 
-def write_manuscript_jpeg(figure, path):
-    """Render a 2640-pixel-wide JPEG with 300 DPI metadata."""
+def write_manuscript_png(figure, path):
+    """Render a 5280-pixel-wide PNG at 600 DPI for Word."""
     from PIL import Image
 
-    rendered = figure.to_image(format="png", width=1320, scale=2)
+    rendered = figure.to_image(format="png", width=1320, scale=4)
     with Image.open(BytesIO(rendered)) as image:
-        image.convert("RGB").save(path, format="JPEG", dpi=(300, 300), quality=95, subsampling=0)
+        image.save(path, format="PNG", dpi=(600, 600))
 
 
-def save_jpeg_figures(panels, variability, directory):
+def save_png_figures(panels, variability, directory):
     """Export the report panels and each Pearson correlation row for Word."""
     directory.mkdir(parents=True, exist_ok=True)
     for title, figure, _ in panels:
-        filename = title.lower().replace(" ", "_") + ".jpeg"
-        write_manuscript_jpeg(figure, directory / filename)
+        filename = title.lower().replace(" ", "_") + ".png"
+        write_manuscript_png(figure, directory / filename)
 
     labels = [label for label, _, _ in devices]
     for metric, units in (("CV", "CV %"), ("DFA", "DFA α")):
         for row, pair in enumerate(combinations(labels, 2), start=1):
             figure = plot_metric_correlations(variability, metric, units, metric_pairs=[pair])
-            filename = f"{metric.lower()}_correlations_row_{row}.jpeg"
-            write_manuscript_jpeg(figure, directory / filename)
-    print(f"Saved JPEG figures in {directory}")
+            filename = f"{metric.lower()}_correlations_row_{row}.png"
+            write_manuscript_png(figure, directory / filename)
+    print(f"Saved 600 DPI PNG figures in {directory}")
 
 
 def coupling_results(records, gait_count):
@@ -636,8 +646,11 @@ def coupling_results(records, gait_count):
             if first is None or second is None:
                 unavailable += 1
                 continue
-            first_intervals, second_intervals = match_gait_intervals(first, second)
-            if first_intervals.size < max(11, maximum):
+            if reference == "IMU":
+                first_intervals, second_intervals = match_gait_intervals(first, second)
+            else:
+                first_intervals, second_intervals = np.diff(first), np.diff(second)
+            if first_intervals.size != second_intervals.size or first_intervals.size < max(11, maximum):
                 unavailable += 1
                 continue
             matched.append((participant, inclination, label, first_intervals, second_intervals))
@@ -683,7 +696,38 @@ def plot_coupling(results):
             tickvals=[-1, -0.5, 0, 0.5, 1], row=1, col=col,
         )
     fig.update_layout(template="plotly_white", height=510)
-    return fig
+    return show_axis_lines(fig)
+
+
+def write_statistics_workbook(path, comparisons, models):
+    from User_statistical_analysis import summarize_mixed_models
+
+    effects = summarize_mixed_models(models)
+    notes = pd.DataFrame({"Reporting notes": [
+        "Separate REML linear mixed models by outcome, with categorical incline and a participant random intercept.",
+        "Main effects jointly test all incline coefficients using an asymptotic Wald chi-square test.",
+        "Pairwise estimates subtract the lower incline from the higher incline. CV differences are in percentage points.",
+        "Pairwise tests use asymptotic Wald z statistics and pointwise, unadjusted 95% confidence intervals.",
+        f"Holm adjustment is applied across {len(effects)} main effects and separately across {len(comparisons)} pairwise tests.",
+        "Marginal R² describes variance explained by fixed effects. Conditional R² includes fixed and random effects.",
+    ]})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        for sheet_name, table in (
+            ("Main effects", effects),
+            ("Pairwise comparisons", comparisons),
+            ("Reporting notes", notes),
+        ):
+            freeze_panes = (1, 0) if sheet_name == "Reporting notes" else (1, 1)
+            table.to_excel(writer, sheet_name=sheet_name, index=False, freeze_panes=freeze_panes)
+            sheet = writer.sheets[sheet_name]
+            if sheet_name != "Reporting notes":
+                sheet.auto_filter.ref = sheet.dimensions
+            for column in sheet.columns:
+                sheet.column_dimensions[column[0].column_letter].width = max(
+                    14, max((len(str(cell.value)) for cell in column if cell.value is not None), default=0) + 2,
+                )
+    print(f"Saved {path}")
 
 
 def main():
@@ -708,8 +752,10 @@ def main():
          f"{lengths} Within each participant and inclination, the IMU defines "
          "consecutive strides. For each muscle, the longest run with exactly one EMG peak per stride "
          "supplies the matched intervals. The plotted values are signed mean correlations in the "
-         f"lowest and highest scale quartiles. {bands} "
-         f"Pair/trial combinations with missing data or insufficient matched intervals: {unavailable}."),
+         "lowest and highest scale quartiles. Gastrocnemius and quadriceps intervals are paired "
+         "in sequence order when their standardized lengths are equal. "
+         f"{bands} Pair/trial combinations with missing data, unequal lengths, or too few intervals: "
+         f"{unavailable}."),
         ("CV correlations", plot_metric_correlations(variability, "CV", "CV %"),
          "Each point is one participant with both CV measurements at that inclination. "
          "Panels show Pearson r, the paired sample size, a linear fit, and a dashed identity line."),
@@ -717,13 +763,17 @@ def main():
          "Each point is one participant with both DFA estimates at that inclination. "
          "Panels show Pearson r, the paired sample size, a linear fit, and a dashed identity line."),
     ]
-    if save_results_excel or statistical_analysis:
+    if save_results_excel or statistical_analysis or save_statistics:
         results = results_table(variability, coupling)
 
-    if statistical_analysis:
+    if statistical_analysis or save_statistics:
         from User_statistical_analysis import analyze_outcomes
 
-        statistics, _ = analyze_outcomes(results)
+        statistics, models = analyze_outcomes(results)
+        if save_statistics:
+            write_statistics_workbook(statistics_path, statistics, models)
+
+    if statistical_analysis:
         annotations = {
             "Magnitude of variability": [(f"CV_{signal_names[signal]}",) for _, signal, _ in devices],
             "DFA": [(f"DFA_{signal_names[signal]}",) for _, signal, _ in devices],
@@ -755,8 +805,8 @@ def main():
     else:
         open_report(page)
 
-    if save_jpeg:
-        save_jpeg_figures(panels, variability, jpeg_directory)
+    if save_png:
+        save_png_figures(panels, variability, png_directory)
 
 
 if __name__ == "__main__":

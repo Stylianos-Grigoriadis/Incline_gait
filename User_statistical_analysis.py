@@ -91,10 +91,49 @@ def incline_estimates(model):
         estimate = contrast @ fixed.to_numpy()
         standard_error = np.sqrt(contrast @ covariance @ contrast)
         margin = norm.ppf(0.975) * standard_error
-        p_value = 2 * norm.sf(abs(estimate / standard_error))
+        z = estimate / standard_error
+        p_value = 2 * norm.sf(abs(z))
         rows.append((f"{inclines[higher]:g}° vs {inclines[lower]:g}°",
-                     estimate, estimate - margin, estimate + margin, p_value))
-    return pd.DataFrame(rows, columns=["Comparison", "Estimate", "CI lower", "CI upper", "p"])
+                     estimate, estimate - margin, estimate + margin, p_value, standard_error, z))
+    return pd.DataFrame(rows, columns=[
+        "Comparison", "Estimate", "CI lower", "CI upper", "p", "SE", "Wald z",
+    ])
+
+
+def overall_incline_test(model):
+    """Jointly test that all fixed incline contrasts versus 0° are zero."""
+    effects = model.fe_params.iloc[1:].to_numpy()
+    covariance = model.cov_params().loc[model.fe_params.index[1:], model.fe_params.index[1:]]
+    wald = effects @ np.linalg.solve(covariance.to_numpy(), effects)
+    df = len(effects)
+    return wald, df, chi2.sf(wald, df)
+
+
+def summarize_mixed_models(models):
+    rows = []
+    for name, (_, model) in models.items():
+        wald, df, p = overall_incline_test(model)
+        participant_variance = model.cov_re.iloc[0, 0]
+        fixed_variance = np.var(model.model.exog @ model.fe_params.to_numpy(), ddof=1)
+        total_variance = fixed_variance + participant_variance + model.scale
+        rows.append({
+            "Outcome": name,
+            "Effect": "Incline",
+            "Wald chi-square": wald,
+            "df": df,
+            "p": p,
+            "Participants": model.model.n_groups,
+            "Observations": int(model.nobs),
+            "Participant variance": participant_variance,
+            "Residual variance": model.scale,
+            "Marginal R²": fixed_variance / total_variance,
+            "Conditional R²": (fixed_variance + participant_variance) / total_variance,
+        })
+    summary = pd.DataFrame(rows)
+    if not np.isfinite(summary["p"]).all():
+        raise RuntimeError("At least one overall incline test did not yield a finite p-value.")
+    summary.insert(5, "Holm p", multipletests(summary["p"], method="holm")[1])
+    return summary
 
 
 def analyze_outcomes(wide, compare_anova=False):
@@ -115,10 +154,7 @@ def analyze_outcomes(wide, compare_anova=False):
             anova_data = complete.reset_index().melt(id_vars="ID", value_name="Value")
             anova = AnovaRM(anova_data, "Value", "ID", within=["Incline"]).fit()
             estimates["ANOVA overall p"] = anova.anova_table.at["Incline", "Pr > F"]
-            effects = model.fe_params.iloc[1:]
-            covariance = model.cov_params().loc[effects.index, effects.index]
-            wald = effects.to_numpy() @ np.linalg.solve(covariance.to_numpy(), effects.to_numpy())
-            estimates["LMM overall p"] = chi2.sf(wald, len(effects))
+            _, _, estimates["LMM overall p"] = overall_incline_test(model)
             estimates["Complete participants"] = len(complete)
             estimates["Paired p"] = [
                 ttest_rel(complete[higher], complete[lower]).pvalue

@@ -13,8 +13,8 @@ from lib import butter_bandpass_filtfilt
 from User_peak_interval_results import gait_match_bounds, peak_directory
 
 
-PARTICIPANT = "P18"
-INCLINE = "0"  # Choose "0", "12.5", or "25".
+PARTICIPANT = "P9"
+INCLINE = "25"  # Choose "0", "12.5", or "25".
 
 FS = 2148.1481
 TRIALS = {"0": "0.csv", "12.5": "12.csv", "25": "25.csv"}
